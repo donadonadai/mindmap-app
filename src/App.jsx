@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useMindmap } from './useMindmap'
 import { downloadJSON, safeFileName } from './storage'
-import { importAnyFile } from './importers'
+import { importAnyFile, importBinaryFile, isBinaryImport } from './importers'
 import './App.css'
 
 const NODE_MIN_W = 80
@@ -383,17 +383,21 @@ function Sidebar({ mm }) {
     const file = e.target.files?.[0]
     e.target.value = '' // 同じファイルを連続で選べるようにリセット
     if (!file) return
+    const binary = isBinaryImport(file.name)
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const list = importAnyFile(file.name, String(reader.result))
+        const list = binary
+          ? importBinaryFile(file.name, reader.result)
+          : importAnyFile(file.name, String(reader.result))
         const n = mm.addImportedProjects(list)
         alert(`${n} 件のマップを読み込みました。`)
       } catch (err) {
         alert(`読み込みに失敗しました：${err.message}`)
       }
     }
-    reader.readAsText(file)
+    if (binary) reader.readAsArrayBuffer(file)
+    else reader.readAsText(file)
   }
 
   return (
@@ -405,7 +409,7 @@ function Sidebar({ mm }) {
       <div className="backup-bar">
         <button title="全マップをバックアップ書き出し" onClick={exportAll}>⬇ バックアップ</button>
         <button
-          title="ファイルから読み込み（JSON / OPML / FreeMind(.mm) / Markdown）"
+          title="ファイルから読み込み（JSON / MindMeister(.mind) / OPML / FreeMind(.mm) / Markdown）"
           onClick={() => fileRef.current?.click()}
         >
           ⬆ 読み込み
@@ -413,7 +417,7 @@ function Sidebar({ mm }) {
         <input
           ref={fileRef}
           type="file"
-          accept=".json,.opml,.mm,.md,.markdown,.txt,.xml,application/json,text/*"
+          accept=".json,.mind,.opml,.mm,.md,.markdown,.txt,.xml,application/json,text/*"
           style={{ display: 'none' }}
           onChange={onImportFile}
         />
