@@ -36,3 +36,44 @@ export function saveStore(store) {
     // 容量超過などは無視
   }
 }
+
+// ---- エクスポート / インポート ----
+
+// JSON テキストをファイルとしてダウンロードさせる
+export function downloadJSON(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// ファイル名に使えない文字を置換
+export function safeFileName(name) {
+  return (name || 'map').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+}
+
+// 取り込んだ JSON を [{ name, data:{nodes,rootId} }] の配列に正規化
+// 対応形式: 全体バックアップ / 単一マップ(ラップ) / 生の data
+export function parseImport(text) {
+  const obj = JSON.parse(text)
+  const valid = (d) => d && d.nodes && d.rootId && d.nodes[d.rootId]
+
+  if (obj && Array.isArray(obj.projects)) {
+    const list = obj.projects
+      .filter((p) => p && valid(p.data))
+      .map((p) => ({ name: p.name || '無題のマップ', data: p.data }))
+    if (list.length) return list
+  }
+  if (obj && valid(obj.data)) {
+    return [{ name: obj.name || '読み込んだマップ', data: obj.data }]
+  }
+  if (valid(obj)) {
+    return [{ name: '読み込んだマップ', data: obj }]
+  }
+  throw new Error('対応していない形式のファイルです')
+}

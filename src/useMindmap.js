@@ -108,6 +108,21 @@ export function useMindmap() {
     }, 0)
   }, [])
 
+  // 取り込んだマップ群([{name,data}])を新規プロジェクトとして追加
+  const addImportedProjects = useCallback((list) => {
+    if (!list || !list.length) return 0
+    const newProjects = list.map((p) => ({
+      id: genId(),
+      name: p.name || '読み込んだマップ',
+      updatedAt: Date.now(),
+      // 念のためディープコピー（外部由来データの共有参照を避ける）
+      data: JSON.parse(JSON.stringify(p.data)),
+    }))
+    setStore((s) => ({ currentId: newProjects[0].id, projects: [...s.projects, ...newProjects] }))
+    setSelectedId(newProjects[0].data.rootId)
+    return newProjects.length
+  }, [])
+
   const duplicateProject = useCallback((id) => {
     const s = storeRef.current
     const src = s.projects.find((p) => p.id === id)
@@ -196,6 +211,7 @@ export function useMindmap() {
     renameProject,
     deleteProject,
     duplicateProject,
+    addImportedProjects,
     // ノード操作
     addChild,
     addSibling,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useMindmap } from './useMindmap'
+import { downloadJSON, parseImport, safeFileName } from './storage'
 import './App.css'
 
 const NODE_MIN_W = 80
@@ -349,13 +350,67 @@ function Toolbar({ mm, selected, onRecenter, setEditingId, sidebarOpen, onToggle
 function Sidebar({ mm }) {
   const { store, current } = mm
   const [renamingId, setRenamingId] = useState(null)
+  const fileRef = useRef(null)
   const projects = [...store.projects].sort((a, b) => b.updatedAt - a.updatedAt)
+
+  const dateStamp = () => {
+    const d = new Date()
+    const p = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
+  }
+
+  const exportAll = () => {
+    downloadJSON(`mindmap-backup-${dateStamp()}.json`, {
+      type: 'mindmap-backup',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      projects: store.projects.map((p) => ({ name: p.name, data: p.data })),
+    })
+  }
+
+  const exportOne = (p) => {
+    downloadJSON(`mindmap-${safeFileName(p.name)}.json`, {
+      type: 'mindmap-project',
+      version: 1,
+      name: p.name,
+      exportedAt: new Date().toISOString(),
+      data: p.data,
+    })
+  }
+
+  const onImportFile = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 同じファイルを連続で選べるようにリセット
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const list = parseImport(String(reader.result))
+        const n = mm.addImportedProjects(list)
+        alert(`${n} 件のマップを読み込みました。`)
+      } catch (err) {
+        alert(`読み込みに失敗しました：${err.message}`)
+      }
+    }
+    reader.readAsText(file)
+  }
 
   return (
     <div className="sidebar">
       <div className="sidebar-head">
         <span>マイマップ</span>
         <button className="new-btn" onClick={() => mm.newProject()}>＋ 新規</button>
+      </div>
+      <div className="backup-bar">
+        <button title="全マップをバックアップ書き出し" onClick={exportAll}>⬇ バックアップ</button>
+        <button title="ファイルから読み込み（追加）" onClick={() => fileRef.current?.click()}>⬆ 読み込み</button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={onImportFile}
+        />
       </div>
       <div className="project-list">
         {projects.map((p) => (
@@ -384,6 +439,15 @@ function Sidebar({ mm }) {
               <>
                 <span className="project-name">{p.name}</span>
                 <span className="project-actions">
+                  <button
+                    title="このマップを書き出し"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      exportOne(p)
+                    }}
+                  >
+                    ⬇
+                  </button>
                   <button
                     title="複製"
                     onClick={(e) => {
