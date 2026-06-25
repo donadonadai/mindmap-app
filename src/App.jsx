@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useMindmap } from './useMindmap'
-import { downloadJSON, parseImport, safeFileName } from './storage'
+import { downloadJSON, safeFileName } from './storage'
+import { importAnyFile } from './importers'
 import './App.css'
 
 const NODE_MIN_W = 80
@@ -385,7 +386,7 @@ function Sidebar({ mm }) {
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const list = parseImport(String(reader.result))
+        const list = importAnyFile(file.name, String(reader.result))
         const n = mm.addImportedProjects(list)
         alert(`${n} 件のマップを読み込みました。`)
       } catch (err) {
@@ -403,11 +404,16 @@ function Sidebar({ mm }) {
       </div>
       <div className="backup-bar">
         <button title="全マップをバックアップ書き出し" onClick={exportAll}>⬇ バックアップ</button>
-        <button title="ファイルから読み込み（追加）" onClick={() => fileRef.current?.click()}>⬆ 読み込み</button>
+        <button
+          title="ファイルから読み込み（JSON / OPML / FreeMind(.mm) / Markdown）"
+          onClick={() => fileRef.current?.click()}
+        >
+          ⬆ 読み込み
+        </button>
         <input
           ref={fileRef}
           type="file"
-          accept="application/json,.json"
+          accept=".json,.opml,.mm,.md,.markdown,.txt,.xml,application/json,text/*"
           style={{ display: 'none' }}
           onChange={onImportFile}
         />
