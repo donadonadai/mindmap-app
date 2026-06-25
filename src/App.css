@@ -144,13 +144,16 @@
 }
 
 .project-actions {
-  display: none;
+  display: flex;
   gap: 1px;
   flex-shrink: 0;
+  opacity: 0.45;
+  transition: opacity 0.12s;
 }
 
-.project-item:hover .project-actions {
-  display: flex;
+.project-item:hover .project-actions,
+.project-item.active .project-actions {
+  opacity: 1;
 }
 
 .project-actions button {
