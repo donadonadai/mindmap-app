@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadStore, saveStore } from './storage'
+import { supabase, cloudEnabled } from './supabase'
 
 // store = { currentId, projects: [ { id, name, updatedAt, data } ] }
 // data  = { nodes: { id -> {id,text,x,y,parentId,color,collapsed?} }, rootId }
@@ -64,6 +65,133 @@ export function useMindmap() {
     const flush = () => saveStore(storeRef.current)
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
+  }, [])
+
+  // ---- クラウド同期 (Supabase / 未設定なら全て無効) ----
+  const [user, setUser] = useState(null)
+  const userRef = useRef(null)
+  userRef.current = user
+  // idle=未ログイン, syncing=同期中, synced=同期済み, error=失敗
+  const [syncState, setSyncState] = useState('idle')
+  const lastPushedRef = useRef(new Map()) // id -> サーバへ送信済みの updatedAt(ms)
+  const pushTimer = useRef(null)
+
+  // ログイン状態の監視
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [])
+
+  const projectToRow = (p, userId) => ({
+    user_id: userId,
+    id: p.id,
+    name: p.name,
+    data: p.data,
+    updated_at: new Date(p.updatedAt).toISOString(),
+  })
+
+  // 全体同期: サーバ⇄ローカルをマージ（新しい方が勝ち）して差分をアップロード
+  const fullSync = useCallback(async () => {
+    const u = userRef.current
+    if (!supabase || !u) return
+    setSyncState('syncing')
+    try {
+      const { data: rows, error } = await supabase.from('maps').select('id,name,data,updated_at')
+      if (error) throw error
+
+      const s = storeRef.current
+      const byId = new Map(s.projects.map((p) => [p.id, p]))
+      const serverMs = new Map()
+      for (const r of rows) {
+        const ms = new Date(r.updated_at).getTime()
+        serverMs.set(r.id, ms)
+        const local = byId.get(r.id)
+        if (!local || ms > local.updatedAt) {
+          byId.set(r.id, { id: r.id, name: r.name, updatedAt: ms, data: r.data })
+        }
+      }
+      const projects = [...byId.values()]
+      const currentId = byId.has(s.currentId) ? s.currentId : projects[0].id
+      setStore({ currentId, projects })
+
+      // ローカルにしかない/ローカルの方が新しいものを送る
+      const toPush = projects.filter(
+        (p) => !serverMs.has(p.id) || p.updatedAt > serverMs.get(p.id) + 500,
+      )
+      if (toPush.length) {
+        const { error: e2 } = await supabase
+          .from('maps')
+          .upsert(toPush.map((p) => projectToRow(p, u.id)), { onConflict: 'user_id,id' })
+        if (e2) throw e2
+      }
+      for (const p of projects) lastPushedRef.current.set(p.id, p.updatedAt)
+      setSyncState('synced')
+    } catch (err) {
+      console.error('[sync] fullSync failed:', err)
+      setSyncState('error')
+    }
+  }, [])
+
+  // ログイン直後に全体同期・ログアウトで同期状態をリセット
+  useEffect(() => {
+    if (user) {
+      fullSync()
+    } else {
+      lastPushedRef.current = new Map()
+      setSyncState('idle')
+    }
+  }, [user, fullSync])
+
+  // 変更を1.5秒デバウンスでアップロード（削除も反映）
+  useEffect(() => {
+    if (!supabase || !user) return
+    clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(async () => {
+      const s = storeRef.current
+      const dirty = s.projects.filter((p) => (lastPushedRef.current.get(p.id) ?? 0) < p.updatedAt)
+      const localIds = new Set(s.projects.map((p) => p.id))
+      const removed = [...lastPushedRef.current.keys()].filter((id) => !localIds.has(id))
+      if (!dirty.length && !removed.length) return
+      setSyncState('syncing')
+      try {
+        if (dirty.length) {
+          const { error } = await supabase
+            .from('maps')
+            .upsert(dirty.map((p) => projectToRow(p, user.id)), { onConflict: 'user_id,id' })
+          if (error) throw error
+          for (const p of dirty) lastPushedRef.current.set(p.id, p.updatedAt)
+        }
+        if (removed.length) {
+          const { error } = await supabase.from('maps').delete().in('id', removed)
+          if (error) throw error
+          for (const id of removed) lastPushedRef.current.delete(id)
+        }
+        setSyncState('synced')
+      } catch (err) {
+        console.error('[sync] push failed:', err)
+        setSyncState('error')
+      }
+    }, 1500)
+    return () => clearTimeout(pushTimer.current)
+  }, [store, user])
+
+  // 認証操作（結果の error はそのまま返してUI側で表示）
+  const signUp = useCallback(async (email, password) => {
+    const { data, error } = await supabase.auth.signUp({ email, password })
+    return { data, error }
+  }, [])
+
+  const signIn = useCallback(async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    return { data, error }
+  }, [])
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut()
   }, [])
 
   // ---- アンドゥ/リドゥ（現在のプロジェクトの data スナップショット） ----
@@ -293,6 +421,8 @@ export function useMindmap() {
     redo,
     canUndo: historyRef.current.past.length > 0,
     canRedo: historyRef.current.future.length > 0,
+    // クラウド同期
+    cloud: { enabled: cloudEnabled, user, syncState, signUp, signIn, signOut, fullSync },
     // プロジェクト操作
     newProject,
     selectProject,

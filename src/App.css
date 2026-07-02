@@ -85,6 +85,216 @@
   background: #e0e7ff;
 }
 
+/* --- クラウド同期 --- */
+.cloud-bar {
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.cloud-login-btn {
+  width: 100%;
+  border: 1px solid #38bdf8;
+  background: #f0f9ff;
+  color: #0369a1;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cloud-login-btn:hover {
+  background: #e0f2fe;
+}
+
+.cloud-note {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.cloud-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cloud-email {
+  font-size: 12px;
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #94a3b8;
+}
+
+.sync-dot.synced { background: #22c55e; }
+.sync-dot.syncing { background: #f59e0b; }
+.sync-dot.error { background: #ef4444; }
+
+.cloud-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.sync-label {
+  font-size: 10.5px;
+  color: #94a3b8;
+  margin-right: auto;
+}
+
+.cloud-actions button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cloud-actions button:hover {
+  background: #f1f5f9;
+}
+
+/* --- 認証モーダル --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.auth-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  width: 320px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.auth-tabs button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.auth-tabs button.on {
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.auth-modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.auth-modal input {
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 14px;
+  outline: none;
+}
+
+.auth-modal input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.auth-msg {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  line-height: 1.5;
+}
+
+.auth-msg.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.auth-msg.info {
+  background: #f0f9ff;
+  color: #0369a1;
+}
+
+.auth-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.auth-buttons button {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #475569;
+  border-radius: 7px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.auth-buttons button.primary {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #fff;
+  font-weight: 700;
+}
+
+.auth-buttons button.primary:hover:not(:disabled) {
+  background: #4338ca;
+}
+
+.auth-buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-note {
+  font-size: 10.5px;
+  color: #94a3b8;
+  text-align: center;
+  line-height: 1.6;
+}
+
 .backup-bar {
   display: flex;
   gap: 6px;

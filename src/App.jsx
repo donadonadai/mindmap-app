@@ -602,6 +602,7 @@ function Sidebar({ mm }) {
         <span>マイマップ</span>
         <button className="new-btn" onClick={() => mm.newProject()}>＋ 新規</button>
       </div>
+      <CloudPanel cloud={mm.cloud} />
       <div className="backup-bar">
         <button title="全マップをバックアップ書き出し" onClick={exportAll}>⬇ バックアップ</button>
         <button
@@ -690,6 +691,136 @@ function Sidebar({ mm }) {
         ))}
       </div>
       <div className="sidebar-foot">{projects.length} マップ ・ 自動保存</div>
+    </div>
+  )
+}
+
+// ---- クラウド同期パネル（Supabase 未設定なら非表示） ----
+
+const SYNC_LABEL = {
+  idle: '未ログイン',
+  syncing: '同期中…',
+  synced: '同期済み',
+  error: '同期エラー',
+}
+
+function CloudPanel({ cloud }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  if (!cloud.enabled) return null
+
+  if (!cloud.user) {
+    return (
+      <div className="cloud-bar">
+        <button className="cloud-login-btn" onClick={() => setModalOpen(true)}>
+          ☁ ログイン / 新規登録
+        </button>
+        <div className="cloud-note">ログインすると全PCでマップを同期</div>
+        {modalOpen && <AuthModal cloud={cloud} onClose={() => setModalOpen(false)} />}
+      </div>
+    )
+  }
+
+  return (
+    <div className="cloud-bar">
+      <div className="cloud-user">
+        <span className={`sync-dot ${cloud.syncState}`} title={SYNC_LABEL[cloud.syncState]} />
+        <span className="cloud-email" title={cloud.user.email}>{cloud.user.email}</span>
+      </div>
+      <div className="cloud-actions">
+        <span className="sync-label">{SYNC_LABEL[cloud.syncState]}</span>
+        <button title="今すぐ同期" onClick={() => cloud.fullSync()}>↻</button>
+        <button
+          title="ログアウト"
+          onClick={() => {
+            if (confirm('ログアウトしますか？\n（このPCのローカルデータはそのまま残ります）')) cloud.signOut()
+          }}
+        >
+          ログアウト
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AuthModal({ cloud, onClose }) {
+  const [mode, setMode] = useState('login') // login | signup
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState(null) // {type:'error'|'info', text}
+
+  const jpError = (error) => {
+    const m = error?.message || ''
+    if (/Invalid login credentials/i.test(m)) return 'メールアドレスかパスワードが違います'
+    if (/already registered/i.test(m)) return 'このメールアドレスは登録済みです。ログインしてください'
+    if (/at least 6 characters/i.test(m)) return 'パスワードは6文字以上にしてください'
+    if (/valid email/i.test(m)) return 'メールアドレスの形式が正しくありません'
+    if (/rate limit/i.test(m)) return '試行回数が多すぎます。しばらく待ってから再度お試しください'
+    if (/not confirmed/i.test(m)) return 'メール確認が完了していません。届いたメールのリンクを開いてください'
+    return `エラー: ${m}`
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    setMessage(null)
+    setBusy(true)
+    try {
+      if (mode === 'signup') {
+        const { data, error } = await cloud.signUp(email.trim(), password)
+        if (error) setMessage({ type: 'error', text: jpError(error) })
+        else if (data.session) onClose() // 即ログイン（メール確認オフ設定時）
+        else setMessage({ type: 'info', text: '確認メールを送信しました。メール内のリンクを開くと登録完了です。' })
+      } else {
+        const { error } = await cloud.signIn(email.trim(), password)
+        if (error) setMessage({ type: 'error', text: jpError(error) })
+        else onClose()
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <form className="auth-modal" onSubmit={submit}>
+        <div className="auth-tabs">
+          <button type="button" className={mode === 'login' ? 'on' : ''} onClick={() => { setMode('login'); setMessage(null) }}>ログイン</button>
+          <button type="button" className={mode === 'signup' ? 'on' : ''} onClick={() => { setMode('signup'); setMessage(null) }}>新規登録</button>
+        </div>
+        <label>
+          メールアドレス
+          <input
+            type="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
+        <label>
+          パスワード（6文字以上）
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••"
+          />
+        </label>
+        {message && <div className={`auth-msg ${message.type}`}>{message.text}</div>}
+        <div className="auth-buttons">
+          <button type="button" onClick={onClose}>キャンセル</button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? '処理中…' : mode === 'login' ? 'ログイン' : '登録する'}
+          </button>
+        </div>
+        <div className="auth-note">
+          ログインすると、マップがクラウドに保存され<br />どのPC・スマホからでも同じデータを使えます。
+        </div>
+      </form>
     </div>
   )
 }
