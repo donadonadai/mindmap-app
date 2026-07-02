@@ -166,6 +166,12 @@ export default function App() {
     const onKey = (e) => {
       if (e.isComposing || e.keyCode === 229) return // IME変換中は無視
       if (editingId) return // テキスト編集中は無効（入力側で処理）
+      // 入力欄（ログイン・パスワード・名前変更など）へのタイプはショートカット対象外
+      const t = e.target
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
+      ) return
 
       // アンドゥ/リドゥは選択なしでも効く
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
