@@ -76,12 +76,16 @@ export function useMindmap() {
   const lastPushedRef = useRef(new Map()) // id -> サーバへ送信済みの updatedAt(ms)
   const pushTimer = useRef(null)
 
+  // パスワード再設定メールのリンクから戻ってきた状態
+  const [recoveryMode, setRecoveryMode] = useState(false)
+
   // ログイン状態の監視
   useEffect(() => {
     if (!supabase) return
     supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
+      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true)
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -192,6 +196,21 @@ export function useMindmap() {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
+  }, [])
+
+  // パスワード再設定メールを送る（リンクは本番URLに戻る）
+  const resetPassword = useCallback(async (email) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    })
+    return { error }
+  }, [])
+
+  // 新しいパスワードを設定（リセットリンク経由 or ログイン中の変更）
+  const updatePassword = useCallback(async (password) => {
+    const { error } = await supabase.auth.updateUser({ password })
+    if (!error) setRecoveryMode(false)
+    return { error }
   }, [])
 
   // ---- アンドゥ/リドゥ（現在のプロジェクトの data スナップショット） ----
@@ -422,7 +441,19 @@ export function useMindmap() {
     canUndo: historyRef.current.past.length > 0,
     canRedo: historyRef.current.future.length > 0,
     // クラウド同期
-    cloud: { enabled: cloudEnabled, user, syncState, signUp, signIn, signOut, fullSync },
+    cloud: {
+      enabled: cloudEnabled,
+      user,
+      syncState,
+      signUp,
+      signIn,
+      signOut,
+      fullSync,
+      resetPassword,
+      updatePassword,
+      recoveryMode,
+      setRecoveryMode,
+    },
     // プロジェクト操作
     newProject,
     selectProject,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useMindmap } from './useMindmap'
 import { downloadJSON, safeFileName } from './storage'
 import { importAnyFile, importBinaryFile, isBinaryImport } from './importers'
+import { TERMS_TEXT, PRIVACY_TEXT } from './legal'
 import './App.css'
 
 const NODE_MIN_W = 80
@@ -389,6 +390,13 @@ export default function App() {
           </div>
         </div>
       </div>
+      {mm.cloud.recoveryMode && (
+        <PasswordModal
+          cloud={mm.cloud}
+          title="新しいパスワードを設定"
+          onClose={() => mm.cloud.setRecoveryMode(false)}
+        />
+      )}
     </div>
   )
 }
@@ -476,7 +484,7 @@ function Toolbar({ mm, selected, hasChildren, onRecenter, onExportPNG, setEditin
       <button className="icon-btn" title="マップ一覧" onClick={onToggleSidebar}>
         {sidebarOpen ? '◀' : '☰'}
       </button>
-      <span className="brand">🧠 MindMap</span>
+      <span className="brand">🧠 Nobleme MindMap</span>
       <span className="cur-name" title="現在のマップ">{mm.current.name}</span>
 
       <span className="sep" />
@@ -547,6 +555,7 @@ function Toolbar({ mm, selected, hasChildren, onRecenter, onExportPNG, setEditin
 function Sidebar({ mm }) {
   const { store, current } = mm
   const [renamingId, setRenamingId] = useState(null)
+  const [legalTab, setLegalTab] = useState(null)
   const fileRef = useRef(null)
   const projects = [...store.projects].sort((a, b) => b.updatedAt - a.updatedAt)
 
@@ -690,7 +699,15 @@ function Sidebar({ mm }) {
           </div>
         ))}
       </div>
-      <div className="sidebar-foot">{projects.length} マップ ・ 自動保存</div>
+      <div className="sidebar-foot">
+        <div>{projects.length} マップ ・ 自動保存</div>
+        <div className="foot-links">
+          <button type="button" className="auth-link inline" onClick={() => setLegalTab('terms')}>利用規約</button>
+          ・
+          <button type="button" className="auth-link inline" onClick={() => setLegalTab('privacy')}>プライバシー</button>
+        </div>
+      </div>
+      {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
     </div>
   )
 }
@@ -706,6 +723,7 @@ const SYNC_LABEL = {
 
 function CloudPanel({ cloud }) {
   const [modalOpen, setModalOpen] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   if (!cloud.enabled) return null
 
   if (!cloud.user) {
@@ -729,6 +747,7 @@ function CloudPanel({ cloud }) {
       <div className="cloud-actions">
         <span className="sync-label">{SYNC_LABEL[cloud.syncState]}</span>
         <button title="今すぐ同期" onClick={() => cloud.fullSync()}>↻</button>
+        <button title="パスワード変更" onClick={() => setPwOpen(true)}>🔑</button>
         <button
           title="ログアウト"
           onClick={() => {
@@ -738,27 +757,30 @@ function CloudPanel({ cloud }) {
           ログアウト
         </button>
       </div>
+      {pwOpen && <PasswordModal cloud={cloud} title="パスワード変更" onClose={() => setPwOpen(false)} />}
     </div>
   )
 }
 
+function jpError(error) {
+  const m = error?.message || ''
+  if (/Invalid login credentials/i.test(m)) return 'メールアドレスかパスワードが違います'
+  if (/already registered/i.test(m)) return 'このメールアドレスは登録済みです。ログインしてください'
+  if (/at least 6 characters|Password should/i.test(m)) return 'パスワードは6文字以上にしてください'
+  if (/valid email|is invalid/i.test(m)) return 'メールアドレスの形式が正しくありません'
+  if (/rate limit|Too many/i.test(m)) return '試行回数が多すぎます。しばらく待ってから再度お試しください'
+  if (/not confirmed/i.test(m)) return 'メール確認が完了していません。届いたメールのリンクを開いてください'
+  if (/different from the old/i.test(m)) return '現在と同じパスワードは設定できません'
+  return `エラー: ${m}`
+}
+
 function AuthModal({ cloud, onClose }) {
-  const [mode, setMode] = useState('login') // login | signup
+  const [mode, setMode] = useState('login') // login | signup | forgot
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null) // {type:'error'|'info', text}
-
-  const jpError = (error) => {
-    const m = error?.message || ''
-    if (/Invalid login credentials/i.test(m)) return 'メールアドレスかパスワードが違います'
-    if (/already registered/i.test(m)) return 'このメールアドレスは登録済みです。ログインしてください'
-    if (/at least 6 characters/i.test(m)) return 'パスワードは6文字以上にしてください'
-    if (/valid email/i.test(m)) return 'メールアドレスの形式が正しくありません'
-    if (/rate limit/i.test(m)) return '試行回数が多すぎます。しばらく待ってから再度お試しください'
-    if (/not confirmed/i.test(m)) return 'メール確認が完了していません。届いたメールのリンクを開いてください'
-    return `エラー: ${m}`
-  }
+  const [legalTab, setLegalTab] = useState(null) // 'terms' | 'privacy' | null
 
   const submit = async (e) => {
     e.preventDefault()
@@ -771,6 +793,10 @@ function AuthModal({ cloud, onClose }) {
         if (error) setMessage({ type: 'error', text: jpError(error) })
         else if (data.session) onClose() // 即ログイン（メール確認オフ設定時）
         else setMessage({ type: 'info', text: '確認メールを送信しました。メール内のリンクを開くと登録完了です。' })
+      } else if (mode === 'forgot') {
+        const { error } = await cloud.resetPassword(email.trim())
+        if (error) setMessage({ type: 'error', text: jpError(error) })
+        else setMessage({ type: 'info', text: '再設定メールを送信しました。メール内のリンクから新しいパスワードを設定してください。' })
       } else {
         const { error } = await cloud.signIn(email.trim(), password)
         if (error) setMessage({ type: 'error', text: jpError(error) })
@@ -784,10 +810,14 @@ function AuthModal({ cloud, onClose }) {
   return (
     <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <form className="auth-modal" onSubmit={submit}>
-        <div className="auth-tabs">
-          <button type="button" className={mode === 'login' ? 'on' : ''} onClick={() => { setMode('login'); setMessage(null) }}>ログイン</button>
-          <button type="button" className={mode === 'signup' ? 'on' : ''} onClick={() => { setMode('signup'); setMessage(null) }}>新規登録</button>
-        </div>
+        {mode !== 'forgot' ? (
+          <div className="auth-tabs">
+            <button type="button" className={mode === 'login' ? 'on' : ''} onClick={() => { setMode('login'); setMessage(null) }}>ログイン</button>
+            <button type="button" className={mode === 'signup' ? 'on' : ''} onClick={() => { setMode('signup'); setMessage(null) }}>新規登録</button>
+          </div>
+        ) : (
+          <div className="auth-forgot-head">パスワード再設定</div>
+        )}
         <label>
           メールアドレス
           <input
@@ -799,28 +829,120 @@ function AuthModal({ cloud, onClose }) {
             placeholder="you@example.com"
           />
         </label>
+        {mode !== 'forgot' && (
+          <label>
+            パスワード（6文字以上）
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••"
+            />
+          </label>
+        )}
+        {message && <div className={`auth-msg ${message.type}`}>{message.text}</div>}
+        {mode === 'login' && (
+          <button type="button" className="auth-link" onClick={() => { setMode('forgot'); setMessage(null) }}>
+            パスワードをお忘れですか？
+          </button>
+        )}
+        {mode === 'forgot' && (
+          <button type="button" className="auth-link" onClick={() => { setMode('login'); setMessage(null) }}>
+            ← ログインに戻る
+          </button>
+        )}
+        <div className="auth-buttons">
+          <button type="button" onClick={onClose}>キャンセル</button>
+          <button type="submit" className="primary" disabled={busy}>
+            {busy ? '処理中…' : mode === 'login' ? 'ログイン' : mode === 'signup' ? '登録する' : '再設定メールを送る'}
+          </button>
+        </div>
+        {mode === 'signup' ? (
+          <div className="auth-note">
+            登録すると
+            <button type="button" className="auth-link inline" onClick={() => setLegalTab('terms')}>利用規約</button>
+            と
+            <button type="button" className="auth-link inline" onClick={() => setLegalTab('privacy')}>プライバシーポリシー</button>
+            に<br />同意したものとみなされます。
+          </div>
+        ) : (
+          <div className="auth-note">
+            ログインすると、マップがクラウドに保存され<br />どのPC・スマホからでも同じデータを使えます。
+          </div>
+        )}
+        {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
+      </form>
+    </div>
+  )
+}
+
+// 新しいパスワードの設定（リセットリンク経由・ログイン中の変更 共用）
+function PasswordModal({ cloud, title, onClose }) {
+  const [pw1, setPw1] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState(null)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    if (pw1 !== pw2) {
+      setMessage({ type: 'error', text: 'パスワードが一致しません' })
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    try {
+      const { error } = await cloud.updatePassword(pw1)
+      if (error) setMessage({ type: 'error', text: jpError(error) })
+      else {
+        alert('パスワードを変更しました。')
+        onClose()
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <form className="auth-modal" onSubmit={submit}>
+        <div className="auth-forgot-head">{title}</div>
         <label>
-          パスワード（6文字以上）
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••"
-          />
+          新しいパスワード（6文字以上）
+          <input type="password" required minLength={6} autoFocus value={pw1} onChange={(e) => setPw1(e.target.value)} />
+        </label>
+        <label>
+          新しいパスワード（確認）
+          <input type="password" required minLength={6} value={pw2} onChange={(e) => setPw2(e.target.value)} />
         </label>
         {message && <div className={`auth-msg ${message.type}`}>{message.text}</div>}
         <div className="auth-buttons">
           <button type="button" onClick={onClose}>キャンセル</button>
-          <button type="submit" className="primary" disabled={busy}>
-            {busy ? '処理中…' : mode === 'login' ? 'ログイン' : '登録する'}
-          </button>
-        </div>
-        <div className="auth-note">
-          ログインすると、マップがクラウドに保存され<br />どのPC・スマホからでも同じデータを使えます。
+          <button type="submit" className="primary" disabled={busy}>{busy ? '処理中…' : '変更する'}</button>
         </div>
       </form>
+    </div>
+  )
+}
+
+// 利用規約・プライバシーポリシー
+function LegalModal({ tab: initialTab, onClose }) {
+  const [tab, setTab] = useState(initialTab || 'terms')
+  return (
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="legal-modal">
+        <div className="auth-tabs">
+          <button type="button" className={tab === 'terms' ? 'on' : ''} onClick={() => setTab('terms')}>利用規約</button>
+          <button type="button" className={tab === 'privacy' ? 'on' : ''} onClick={() => setTab('privacy')}>プライバシーポリシー</button>
+        </div>
+        <div className="legal-body">{tab === 'terms' ? TERMS_TEXT : PRIVACY_TEXT}</div>
+        <div className="auth-buttons">
+          <button type="button" onClick={onClose}>閉じる</button>
+        </div>
+      </div>
     </div>
   )
 }

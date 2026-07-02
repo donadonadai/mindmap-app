@@ -295,6 +295,72 @@
   line-height: 1.6;
 }
 
+.auth-forgot-head {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.auth-link {
+  border: none;
+  background: none;
+  color: #4f46e5;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-align: center;
+}
+
+.auth-link:hover {
+  color: #4338ca;
+}
+
+.auth-link.inline {
+  display: inline;
+  font-size: inherit;
+}
+
+/* --- 利用規約モーダル --- */
+.legal-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legal-body {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: #334155;
+  padding: 4px 6px;
+  border: 1px solid #eef0f3;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.foot-links {
+  margin-top: 2px;
+}
+
+.foot-links .auth-link.inline {
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+.foot-links .auth-link.inline:hover {
+  color: #4f46e5;
+}
+
 .backup-bar {
   display: flex;
   gap: 6px;
