@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMindmap } from './useMindmap'
 import { downloadJSON, safeFileName } from './storage'
 import { importAnyFile, importBinaryFile, isBinaryImport } from './importers'
 import './App.css'
 
 const NODE_MIN_W = 80
+const DEFAULT_SIZE = { w: 140, h: 48 }
+
+// IME変換確定のEnter（や変換中のキー）を無視するための判定
+const isComposingEvent = (e) =>
+  e.nativeEvent?.isComposing || e.isComposing || e.keyCode === 229
 
 export default function App() {
   const mm = useMindmap()
@@ -24,21 +29,50 @@ export default function App() {
   // ドラッグ状態 (ノード移動 or 背景パン)
   const drag = useRef(null)
 
+  // ---- 子ノード索引・表示中ノード集合（折りたたみ反映）----
+  const { childrenMap, visibleIds, descCount } = useMemo(() => {
+    const cm = new Map()
+    for (const n of Object.values(state.nodes)) {
+      if (n.parentId != null && state.nodes[n.parentId]) {
+        if (!cm.has(n.parentId)) cm.set(n.parentId, [])
+        cm.get(n.parentId).push(n)
+      }
+    }
+    for (const arr of cm.values()) arr.sort((a, b) => a.y - b.y)
+
+    const visible = new Set()
+    const walk = (id) => {
+      visible.add(id)
+      if (state.nodes[id]?.collapsed) return
+      for (const c of cm.get(id) || []) walk(c.id)
+    }
+    if (state.nodes[state.rootId]) walk(state.rootId)
+
+    // 折りたたみバッジ用: 子孫の総数
+    const memo = new Map()
+    const descCount = (id) => {
+      if (memo.has(id)) return memo.get(id)
+      let c = 0
+      for (const k of cm.get(id) || []) c += 1 + descCount(k.id)
+      memo.set(id, c)
+      return c
+    }
+    return { childrenMap: cm, visibleIds: visible, descCount }
+  }, [state.nodes, state.rootId])
+
   // --- ノードサイズ測定（接続線を中心に引くため） ---
   useLayoutEffect(() => {
-    const sizes = {}
     let changed = false
-    for (const id of Object.keys(state.nodes)) {
+    for (const id of visibleIds) {
       const el = document.getElementById(`node-${id}`)
       if (el) {
         const w = el.offsetWidth
         const h = el.offsetHeight
-        sizes[id] = { w, h }
         const prev = sizesRef.current[id]
         if (!prev || prev.w !== w || prev.h !== h) changed = true
+        sizesRef.current[id] = { w, h }
       }
     }
-    sizesRef.current = sizes
     if (changed) forceTick((t) => t + 1)
   })
 
@@ -83,7 +117,6 @@ export default function App() {
       startY: e.clientY,
       ox: node.x,
       oy: node.y,
-      moved: false,
     }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
@@ -97,7 +130,6 @@ export default function App() {
       const v = viewRef.current
       const dx = (e.clientX - d.startX) / v.scale
       const dy = (e.clientY - d.startY) / v.scale
-      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true
       mm.moveNode(d.id, d.ox + dx, d.oy + dy)
     }
   }
@@ -106,38 +138,81 @@ export default function App() {
     drag.current = null
   }
 
+  // --- 矢印キーでノード間を移動 ---
+  const navigate = useCallback((key) => {
+    const cur = state.nodes[selectedId]
+    if (!cur) return
+    if (key === 'ArrowLeft') {
+      if (cur.parentId) setSelectedId(cur.parentId)
+    } else if (key === 'ArrowRight') {
+      if (cur.collapsed) {
+        mm.toggleCollapse(cur.id) // 折りたたみ中なら展開
+        return
+      }
+      const kids = childrenMap.get(cur.id) || []
+      if (kids.length) setSelectedId(kids[0].id)
+    } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+      const siblings = cur.parentId ? childrenMap.get(cur.parentId) || [] : [cur]
+      const i = siblings.findIndex((n) => n.id === cur.id)
+      const next = siblings[key === 'ArrowUp' ? i - 1 : i + 1]
+      if (next) setSelectedId(next.id)
+    }
+  }, [state.nodes, selectedId, childrenMap, setSelectedId, mm])
+
   // --- キーボードショートカット ---
+  const { addChild, addSibling, deleteNode, undo, redo, toggleCollapse } = mm
   useEffect(() => {
     const onKey = (e) => {
-      if (editingId) return // 編集中は無効
+      if (e.isComposing || e.keyCode === 229) return // IME変換中は無視
+      if (editingId) return // テキスト編集中は無効（入力側で処理）
+
+      // アンドゥ/リドゥは選択なしでも効く
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        redo()
+        return
+      }
+
       if (!selectedId) return
       if (e.key === 'Tab') {
         e.preventDefault()
-        const id = mm.addChild(selectedId)
+        const id = addChild(selectedId)
         if (id) setEditingId(id)
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        const id = mm.addSibling(selectedId)
+        const id = addSibling(selectedId)
         if (id) setEditingId(id)
       } else if (e.key === 'F2') {
         e.preventDefault()
         setEditingId(selectedId)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
-        mm.deleteNode(selectedId)
+        deleteNode(selectedId)
+      } else if (e.key === ' ') {
+        e.preventDefault()
+        toggleCollapse(selectedId)
+      } else if (e.key.startsWith('Arrow')) {
+        e.preventDefault()
+        navigate(e.key)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [editingId, selectedId, mm])
+  }, [editingId, selectedId, addChild, addSibling, deleteNode, undo, redo, toggleCollapse, navigate])
 
-  // --- 全ノードが収まるように表示（オートフィット） ---
+  // --- 全体表示（表示中ノードが収まるようにオートフィット） ---
   const recenter = useCallback(() => {
     const rect = canvasRef.current.getBoundingClientRect()
-    const nodes = Object.values(state.nodes)
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const n of nodes) {
-      const s = sizesRef.current[n.id] || { w: 140, h: 48 }
+    for (const id of visibleIds) {
+      const n = state.nodes[id]
+      const s = sizesRef.current[id] || DEFAULT_SIZE
       minX = Math.min(minX, n.x)
       minY = Math.min(minY, n.y)
       maxX = Math.max(maxX, n.x + s.w)
@@ -151,26 +226,102 @@ export default function App() {
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
     setView({ scale, x: rect.width / 2 - cx * scale, y: rect.height / 2 - cy * scale })
-  }, [state.nodes])
+  }, [state.nodes, visibleIds])
 
   // プロジェクト切替時・初回にオートフィット
   const lastCenteredId = useRef(null)
   useEffect(() => {
     if (canvasRef.current && lastCenteredId.current !== current.id) {
       lastCenteredId.current = current.id
-      // サイズ測定後に実行
       requestAnimationFrame(() => recenter())
     }
   }, [current.id, recenter])
 
-  // --- 接続線（親→子）のパス生成 ---
+  // --- PNG画像として書き出し ---
+  const exportPNG = useCallback(() => {
+    const ids = [...visibleIds]
+    if (!ids.length) return
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const id of ids) {
+      const n = state.nodes[id]
+      const s = sizesRef.current[id] || DEFAULT_SIZE
+      minX = Math.min(minX, n.x)
+      minY = Math.min(minY, n.y)
+      maxX = Math.max(maxX, n.x + s.w)
+      maxY = Math.max(maxY, n.y + s.h)
+    }
+    const pad = 40
+    const scale = 2 // 高解像度
+    const w = maxX - minX + pad * 2
+    const h = maxY - minY + pad * 2
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(w * scale)
+    canvas.height = Math.ceil(h * scale)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.scale(scale, scale)
+    ctx.translate(pad - minX, pad - minY)
+
+    // 接続線
+    for (const id of ids) {
+      const n = state.nodes[id]
+      if (n.parentId == null || !visibleIds.has(n.parentId)) continue
+      const p = state.nodes[n.parentId]
+      const ps = sizesRef.current[p.id] || DEFAULT_SIZE
+      const cs = sizesRef.current[n.id] || DEFAULT_SIZE
+      const x1 = p.x + ps.w / 2, y1 = p.y + ps.h / 2
+      const x2 = n.x + cs.w / 2, y2 = n.y + cs.h / 2
+      const mx = (x1 + x2) / 2
+      ctx.beginPath()
+      ctx.moveTo(x1, y1)
+      ctx.bezierCurveTo(mx, y1, mx, y2, x2, y2)
+      ctx.strokeStyle = n.color
+      ctx.globalAlpha = 0.55
+      ctx.lineWidth = 2.5
+      ctx.stroke()
+      ctx.globalAlpha = 1
+    }
+    // ノード
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (const id of ids) {
+      const n = state.nodes[id]
+      const s = sizesRef.current[id] || DEFAULT_SIZE
+      const isRoot = id === state.rootId
+      ctx.beginPath()
+      ctx.roundRect(n.x, n.y, s.w, s.h, 12)
+      ctx.fillStyle = isRoot ? n.color : '#ffffff'
+      ctx.fill()
+      ctx.strokeStyle = n.color
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.fillStyle = isRoot ? '#ffffff' : '#1e293b'
+      ctx.font = `${isRoot ? '700 16px' : '500 14px'} system-ui, -apple-system, 'Hiragino Sans', sans-serif`
+      ctx.fillText(n.text, n.x + s.w / 2, n.y + s.h / 2 + 1)
+    }
+
+    canvas.toBlob((blob) => {
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `mindmap-${safeFileName(current.name)}.png`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    }, 'image/png')
+  }, [visibleIds, state.nodes, state.rootId, current.name])
+
+  // --- 接続線（親→子・表示中のみ） ---
   const edges = []
-  for (const node of Object.values(state.nodes)) {
-    if (node.parentId == null) continue
+  for (const id of visibleIds) {
+    const node = state.nodes[id]
+    if (node.parentId == null || !visibleIds.has(node.parentId)) continue
     const parent = state.nodes[node.parentId]
-    if (!parent) continue
-    const ps = sizesRef.current[parent.id] || { w: 120, h: 40 }
-    const cs = sizesRef.current[node.id] || { w: 120, h: 40 }
+    const ps = sizesRef.current[parent.id] || DEFAULT_SIZE
+    const cs = sizesRef.current[node.id] || DEFAULT_SIZE
     const x1 = parent.x + ps.w / 2
     const y1 = parent.y + ps.h / 2
     const x2 = node.x + cs.w / 2
@@ -186,7 +337,9 @@ export default function App() {
       <Toolbar
         mm={mm}
         selected={selected}
+        hasChildren={selected ? (childrenMap.get(selected.id) || []).length > 0 : false}
         onRecenter={recenter}
+        onExportPNG={exportPNG}
         setEditingId={setEditingId}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
@@ -210,24 +363,29 @@ export default function App() {
                 <path key={edge.id} d={edge.d} fill="none" stroke={edge.color} strokeWidth={2.5} strokeOpacity={0.55} />
               ))}
             </svg>
-            {Object.values(state.nodes).map((node) => (
-              <NodeView
-                key={node.id}
-                node={node}
-                isRoot={node.id === state.rootId}
-                selected={node.id === selectedId}
-                editing={node.id === editingId}
-                onPointerDown={onPointerDownNode}
-                onStartEdit={() => setEditingId(node.id)}
-                onText={(t) => mm.updateText(node.id, t)}
-                onEndEdit={() => setEditingId(null)}
-              />
-            ))}
+            {[...visibleIds].map((id) => {
+              const node = state.nodes[id]
+              return (
+                <NodeView
+                  key={node.id}
+                  node={node}
+                  isRoot={node.id === state.rootId}
+                  selected={node.id === selectedId}
+                  editing={node.id === editingId}
+                  hiddenCount={node.collapsed ? descCount(node.id) : 0}
+                  onPointerDown={onPointerDownNode}
+                  onStartEdit={() => setEditingId(node.id)}
+                  onToggleCollapse={() => mm.toggleCollapse(node.id)}
+                  onText={(t) => mm.updateText(node.id, t)}
+                  onEndEdit={() => setEditingId(null)}
+                />
+              )
+            })}
           </div>
           <div className="hint">
-            ダブルクリックで編集 ・ ドラッグで移動 ・ ホイールでズーム ・ 背景ドラッグで移動
+            ダブルクリック: 編集 ・ ドラッグ: 移動 ・ ホイール: ズーム ・ 矢印キー: 選択移動
             <br />
-            Tab: 子を追加 ・ Enter: 兄弟を追加 ・ F2: 編集 ・ Delete: 削除
+            Tab: 子 ・ Enter: 兄弟 ・ Space: 折りたたみ ・ Delete: 削除 ・ ⌘Z: 元に戻す
           </div>
         </div>
       </div>
@@ -235,14 +393,20 @@ export default function App() {
   )
 }
 
-function NodeView({ node, isRoot, selected, editing, onPointerDown, onStartEdit, onText, onEndEdit }) {
+function NodeView({
+  node, isRoot, selected, editing, hiddenCount,
+  onPointerDown, onStartEdit, onToggleCollapse, onText, onEndEdit,
+}) {
   const inputRef = useRef(null)
+  const originalRef = useRef(node.text) // Escでの取り消し用
 
   useEffect(() => {
     if (editing && inputRef.current) {
+      originalRef.current = node.text
       inputRef.current.focus()
       inputRef.current.select()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing])
 
   return (
@@ -271,22 +435,41 @@ function NodeView({ node, isRoot, selected, editing, onPointerDown, onStartEdit,
           onChange={(e) => onText(e.target.value)}
           onBlur={onEndEdit}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === 'Escape') {
+            e.stopPropagation()
+            // IME変換確定のEnterでは決定しない
+            if (isComposingEvent(e)) return
+            if (e.key === 'Enter') {
               e.preventDefault()
               onEndEdit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              onText(originalRef.current) // 編集前に戻す
+              onEndEdit()
             }
-            e.stopPropagation()
           }}
           onPointerDown={(e) => e.stopPropagation()}
         />
       ) : (
         <span className="node-text">{node.text || ' '}</span>
       )}
+      {hiddenCount > 0 && (
+        <button
+          className="node-badge"
+          title={`${hiddenCount}個のノードを表示`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleCollapse()
+          }}
+        >
+          +{hiddenCount}
+        </button>
+      )}
     </div>
   )
 }
 
-function Toolbar({ mm, selected, onRecenter, setEditingId, sidebarOpen, onToggleSidebar }) {
+function Toolbar({ mm, selected, hasChildren, onRecenter, onExportPNG, setEditingId, sidebarOpen, onToggleSidebar }) {
   const canEdit = !!selected
   return (
     <div className="toolbar">
@@ -295,6 +478,11 @@ function Toolbar({ mm, selected, onRecenter, setEditingId, sidebarOpen, onToggle
       </button>
       <span className="brand">🧠 MindMap</span>
       <span className="cur-name" title="現在のマップ">{mm.current.name}</span>
+
+      <span className="sep" />
+
+      <button title="元に戻す (⌘Z)" disabled={!mm.canUndo} onClick={mm.undo}>↩︎</button>
+      <button title="やり直す (⌘⇧Z)" disabled={!mm.canRedo} onClick={mm.redo}>↪︎</button>
 
       <span className="sep" />
 
@@ -318,6 +506,13 @@ function Toolbar({ mm, selected, onRecenter, setEditingId, sidebarOpen, onToggle
       </button>
       <button disabled={!canEdit} onClick={() => setEditingId(selected.id)}>
         ✎ 編集
+      </button>
+      <button
+        title="子ノードを折りたたみ/展開 (Space)"
+        disabled={!canEdit || !hasChildren}
+        onClick={() => mm.toggleCollapse(selected.id)}
+      >
+        {selected?.collapsed ? '⊞ 展開' : '⊟ たたむ'}
       </button>
       <button
         disabled={!canEdit || selected.id === mm.state.rootId}
@@ -344,6 +539,7 @@ function Toolbar({ mm, selected, onRecenter, setEditingId, sidebarOpen, onToggle
       <span className="sep" />
 
       <button onClick={onRecenter}>⌖ 全体表示</button>
+      <button title="PNG画像として保存" onClick={onExportPNG}>🖼 PNG</button>
     </div>
   )
 }
@@ -427,6 +623,7 @@ function Sidebar({ mm }) {
           <div
             key={p.id}
             className={`project-item${p.id === current.id ? ' active' : ''}`}
+            title={`更新: ${new Date(p.updatedAt).toLocaleString('ja-JP')}`}
             onClick={() => mm.selectProject(p.id)}
             onDoubleClick={() => setRenamingId(p.id)}
           >
@@ -441,6 +638,7 @@ function Sidebar({ mm }) {
                   setRenamingId(null)
                 }}
                 onKeyDown={(e) => {
+                  if (isComposingEvent(e)) return // IME変換確定のEnterは無視
                   if (e.key === 'Enter') e.target.blur()
                   if (e.key === 'Escape') setRenamingId(null)
                 }}

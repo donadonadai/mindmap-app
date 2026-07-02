@@ -307,6 +307,30 @@
   pointer-events: none;
 }
 
+/* 折りたたみ中の「+N」バッジ（クリックで展開） */
+.node-badge {
+  position: absolute;
+  right: -12px;
+  top: -10px;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 10px;
+  background: #475569;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.node-badge:hover {
+  background: #334155;
+  transform: scale(1.1);
+}
+
 .node-input {
   border: none;
   outline: none;
