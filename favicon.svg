@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#1e293b"/>
+  <!-- 枝 -->
+  <path d="M30 32 C 38 32, 40 18, 48 18" stroke="#38bdf8" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M30 32 C 40 32, 42 32, 50 32" stroke="#4ade80" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M30 32 C 38 32, 40 46, 48 46" stroke="#f472b6" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <!-- 中心ノード -->
+  <rect x="10" y="25" width="22" height="14" rx="7" fill="#ffffff"/>
+  <!-- 子ノード -->
+  <circle cx="50" cy="18" r="5" fill="#38bdf8"/>
+  <circle cx="52" cy="32" r="5" fill="#4ade80"/>
+  <circle cx="50" cy="46" r="5" fill="#f472b6"/>
+</svg>
