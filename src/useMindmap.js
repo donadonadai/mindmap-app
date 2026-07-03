@@ -8,7 +8,8 @@ import { supabase, cloudEnabled } from './supabase'
 let idSeq = 1
 const genId = () => `n${Date.now().toString(36)}_${(idSeq++).toString(36)}`
 
-const PALETTE = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04']
+// 彩度を抑えた調律済みパレット（ノードの枝色）
+const PALETTE = ['#5B8DEF', '#34B27B', '#E0538D', '#EE7B3F', '#8B6EF3', '#2BAAB8', '#D9930D']
 
 const HISTORY_LIMIT = 100
 // 同じ操作タグ(連続ドラッグ・連続タイピング等)をひとつの取り消し単位にまとめる猶予
@@ -18,7 +19,7 @@ function createProjectData() {
   const rootId = genId()
   return {
     nodes: {
-      [rootId]: { id: rootId, text: 'メインテーマ', x: 0, y: 0, parentId: null, color: '#1e293b' },
+      [rootId]: { id: rootId, text: 'メインテーマ', x: 0, y: 0, parentId: null, color: '#16181D' },
     },
     rootId,
   }

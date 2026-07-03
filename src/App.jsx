@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMindmap } from './useMindmap'
 import { downloadJSON, safeFileName } from './storage'
 import { importAnyFile, importBinaryFile, isBinaryImport } from './importers'
 import { TERMS_TEXT, PRIVACY_TEXT } from './legal'
+import { Icon, LogoMark } from './icons'
 import './App.css'
 
 const NODE_MIN_W = 80
-const DEFAULT_SIZE = { w: 140, h: 48 }
+const DEFAULT_SIZE = { w: 140, h: 44 }
 
 // IME変換確定のEnter（や変換中のキー）を無視するための判定
 const isComposingEvent = (e) =>
@@ -49,7 +51,6 @@ export default function App() {
     }
     if (state.nodes[state.rootId]) walk(state.rootId)
 
-    // 折りたたみバッジ用: 子孫の総数
     const memo = new Map()
     const descCount = (id) => {
       if (memo.has(id)) return memo.get(id)
@@ -97,6 +98,18 @@ export default function App() {
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [onWheel])
+
+  // 画面中央基準のズーム（ズームコントロール用）
+  const zoomBy = useCallback((factor) => {
+    const v = viewRef.current
+    const rect = canvasRef.current.getBoundingClientRect()
+    const newScale = Math.min(2.5, Math.max(0.25, v.scale * factor))
+    const mx = rect.width / 2
+    const my = rect.height / 2
+    const wx = (mx - v.x) / v.scale
+    const wy = (my - v.y) / v.scale
+    setView({ scale: newScale, x: mx - wx * newScale, y: my - wy * newScale })
+  }, [])
 
   // --- ポインタ操作 ---
   const onPointerDownBackground = (e) => {
@@ -147,7 +160,7 @@ export default function App() {
       if (cur.parentId) setSelectedId(cur.parentId)
     } else if (key === 'ArrowRight') {
       if (cur.collapsed) {
-        mm.toggleCollapse(cur.id) // 折りたたみ中なら展開
+        mm.toggleCollapse(cur.id)
         return
       }
       const kids = childrenMap.get(cur.id) || []
@@ -173,7 +186,6 @@ export default function App() {
         (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)
       ) return
 
-      // アンドゥ/リドゥは選択なしでも効く
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) redo()
@@ -214,6 +226,8 @@ export default function App() {
   }, [editingId, selectedId, addChild, addSibling, deleteNode, undo, redo, toggleCollapse, navigate])
 
   // --- 全体表示（表示中ノードが収まるようにオートフィット） ---
+  // サイドバー展開中はその分だけ右側の余白にセンタリングする
+  const SIDEBAR_W = 292
   const recenter = useCallback(() => {
     const rect = canvasRef.current.getBoundingClientRect()
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
@@ -226,14 +240,16 @@ export default function App() {
       maxY = Math.max(maxY, n.y + s.h)
     }
     if (!isFinite(minX)) return
-    const pad = 80
+    const offsetL = sidebarOpen ? SIDEBAR_W : 0
+    const availW = rect.width - offsetL
+    const pad = 100
     const bw = maxX - minX + pad * 2
     const bh = maxY - minY + pad * 2
-    const scale = Math.min(1, Math.min(rect.width / bw, rect.height / bh))
+    const scale = Math.min(1, Math.min(availW / bw, rect.height / bh))
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
-    setView({ scale, x: rect.width / 2 - cx * scale, y: rect.height / 2 - cy * scale })
-  }, [state.nodes, visibleIds])
+    setView({ scale, x: offsetL + availW / 2 - cx * scale, y: rect.height / 2 - cy * scale })
+  }, [state.nodes, visibleIds, sidebarOpen])
 
   // プロジェクト切替時・初回にオートフィット
   const lastCenteredId = useRef(null)
@@ -258,7 +274,7 @@ export default function App() {
       maxY = Math.max(maxY, n.y + s.h)
     }
     const pad = 40
-    const scale = 2 // 高解像度
+    const scale = 2
     const w = maxX - minX + pad * 2
     const h = maxY - minY + pad * 2
     const canvas = document.createElement('canvas')
@@ -270,7 +286,6 @@ export default function App() {
     ctx.scale(scale, scale)
     ctx.translate(pad - minX, pad - minY)
 
-    // 接続線
     for (const id of ids) {
       const n = state.nodes[id]
       if (n.parentId == null || !visibleIds.has(n.parentId)) continue
@@ -284,12 +299,11 @@ export default function App() {
       ctx.moveTo(x1, y1)
       ctx.bezierCurveTo(mx, y1, mx, y2, x2, y2)
       ctx.strokeStyle = n.color
-      ctx.globalAlpha = 0.55
-      ctx.lineWidth = 2.5
+      ctx.globalAlpha = 0.5
+      ctx.lineWidth = 2
       ctx.stroke()
       ctx.globalAlpha = 1
     }
-    // ノード
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     for (const id of ids) {
@@ -297,14 +311,14 @@ export default function App() {
       const s = sizesRef.current[id] || DEFAULT_SIZE
       const isRoot = id === state.rootId
       ctx.beginPath()
-      ctx.roundRect(n.x, n.y, s.w, s.h, 12)
+      ctx.roundRect(n.x, n.y, s.w, s.h, 10)
       ctx.fillStyle = isRoot ? n.color : '#ffffff'
       ctx.fill()
       ctx.strokeStyle = n.color
-      ctx.lineWidth = 2
+      ctx.lineWidth = 1.5
       ctx.stroke()
-      ctx.fillStyle = isRoot ? '#ffffff' : '#1e293b'
-      ctx.font = `${isRoot ? '700 16px' : '500 14px'} system-ui, -apple-system, 'Hiragino Sans', sans-serif`
+      ctx.fillStyle = isRoot ? '#ffffff' : '#16181D'
+      ctx.font = `${isRoot ? '700 15px' : '500 13px'} Inter, 'Noto Sans JP', system-ui, sans-serif`
       ctx.fillText(n.text, n.x + s.w / 2, n.y + s.h / 2 + 1)
     }
 
@@ -338,64 +352,115 @@ export default function App() {
   }
 
   const selected = selectedId ? state.nodes[selectedId] : null
+  const selectedSize = selected ? sizesRef.current[selected.id] || DEFAULT_SIZE : null
 
   return (
     <div className="app">
-      <Toolbar
-        mm={mm}
-        selected={selected}
-        hasChildren={selected ? (childrenMap.get(selected.id) || []).length > 0 : false}
-        onRecenter={recenter}
-        onExportPNG={exportPNG}
-        setEditingId={setEditingId}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
-      />
-      <div className="body">
-        {sidebarOpen && <Sidebar mm={mm} />}
+      <div
+        className="canvas"
+        ref={canvasRef}
+        onPointerDown={onPointerDownBackground}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
         <div
-          className="canvas"
-          ref={canvasRef}
-          onPointerDown={onPointerDownBackground}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          className="world"
+          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
         >
-          <div
-            className="world"
-            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-          >
-            <svg className="edges" style={{ overflow: 'visible' }}>
-              {edges.map((edge) => (
-                <path key={edge.id} d={edge.d} fill="none" stroke={edge.color} strokeWidth={2.5} strokeOpacity={0.55} />
-              ))}
-            </svg>
-            {[...visibleIds].map((id) => {
-              const node = state.nodes[id]
-              return (
-                <NodeView
-                  key={node.id}
-                  node={node}
-                  isRoot={node.id === state.rootId}
-                  selected={node.id === selectedId}
-                  editing={node.id === editingId}
-                  hiddenCount={node.collapsed ? descCount(node.id) : 0}
-                  onPointerDown={onPointerDownNode}
-                  onStartEdit={() => setEditingId(node.id)}
-                  onToggleCollapse={() => mm.toggleCollapse(node.id)}
-                  onText={(t) => mm.updateText(node.id, t)}
-                  onEndEdit={() => setEditingId(null)}
-                />
-              )
-            })}
-          </div>
-          <div className="hint">
-            ダブルクリック: 編集 ・ ドラッグ: 移動 ・ ホイール: ズーム ・ 矢印キー: 選択移動
-            <br />
-            Tab: 子 ・ Enter: 兄弟 ・ Space: 折りたたみ ・ Delete: 削除 ・ ⌘Z: 元に戻す
-          </div>
+          <svg className="edges" style={{ overflow: 'visible' }}>
+            {edges.map((edge) => (
+              <path key={edge.id} d={edge.d} fill="none" stroke={edge.color} strokeWidth={2} strokeOpacity={0.45} />
+            ))}
+          </svg>
+          {[...visibleIds].map((id) => {
+            const node = state.nodes[id]
+            return (
+              <NodeView
+                key={node.id}
+                node={node}
+                isRoot={node.id === state.rootId}
+                selected={node.id === selectedId}
+                editing={node.id === editingId}
+                hiddenCount={node.collapsed ? descCount(node.id) : 0}
+                onPointerDown={onPointerDownNode}
+                onStartEdit={() => setEditingId(node.id)}
+                onToggleCollapse={() => mm.toggleCollapse(node.id)}
+                onText={(t) => mm.updateText(node.id, t)}
+                onEndEdit={() => setEditingId(null)}
+              />
+            )
+          })}
         </div>
+
+        {selected && editingId !== selected.id && (
+          <SelectionBar
+            node={selected}
+            size={selectedSize}
+            view={view}
+            mm={mm}
+            isRoot={selected.id === state.rootId}
+            hasChildren={(childrenMap.get(selected.id) || []).length > 0}
+            onEdit={() => setEditingId(selected.id)}
+            setEditingId={setEditingId}
+          />
+        )}
       </div>
+
+      <header className="topbar">
+        <div className="tb-card">
+          <button
+            className={`icon-btn${sidebarOpen ? ' active' : ''}`}
+            title="マップ一覧"
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            <Icon name="panel" />
+          </button>
+          <span className="tb-div" />
+          <span className="brand">
+            <LogoMark size={22} />
+            <span className="wordmark">
+              Nobleme<b>MindMap</b>
+            </span>
+          </span>
+          <span className="tb-div" />
+          <MapTitle mm={mm} />
+        </div>
+        <div className="tb-card">
+          <button className="icon-btn" disabled={!mm.canUndo} onClick={mm.undo} title="元に戻す (⌘Z)">
+            <Icon name="undo" />
+          </button>
+          <button className="icon-btn" disabled={!mm.canRedo} onClick={mm.redo} title="やり直す (⌘⇧Z)">
+            <Icon name="redo" />
+          </button>
+          <span className="tb-div" />
+          <button className="icon-btn" onClick={recenter} title="全体表示">
+            <Icon name="fit" />
+          </button>
+          <button className="icon-btn" onClick={exportPNG} title="PNG画像として保存">
+            <Icon name="image" />
+          </button>
+        </div>
+      </header>
+
+      {sidebarOpen && <Sidebar mm={mm} />}
+
+      <div className="zoombar">
+        <button className="icon-btn" onClick={() => zoomBy(1 / 1.2)} title="縮小">
+          <Icon name="minus" />
+        </button>
+        <button className="zoom-pct" onClick={recenter} title="全体表示">
+          {Math.round(view.scale * 100)}%
+        </button>
+        <button className="icon-btn" onClick={() => zoomBy(1.2)} title="拡大">
+          <Icon name="plus" />
+        </button>
+      </div>
+
+      <div className="hint-chip" style={{ left: `calc(50% + ${sidebarOpen ? SIDEBAR_W / 2 : 0}px)` }}>
+        <kbd>Tab</kbd>子 <kbd>Enter</kbd>兄弟 <kbd>Space</kbd>たたむ <kbd>⌘Z</kbd>戻す ・ ダブルクリックで編集
+      </div>
+
       {mm.cloud.recoveryMode && (
         <PasswordModal
           cloud={mm.cloud}
@@ -407,12 +472,108 @@ export default function App() {
   )
 }
 
+// マップ名（ダブルクリックで変更）
+function MapTitle({ mm }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    return (
+      <input
+        className="map-title-input"
+        autoFocus
+        defaultValue={mm.current.name}
+        onFocus={(e) => e.target.select()}
+        onBlur={(e) => {
+          mm.renameProject(mm.current.id, e.target.value.trim() || '無題のマップ')
+          setEditing(false)
+        }}
+        onKeyDown={(e) => {
+          if (isComposingEvent(e)) return
+          if (e.key === 'Enter') e.target.blur()
+          if (e.key === 'Escape') setEditing(false)
+        }}
+      />
+    )
+  }
+  return (
+    <button className="map-title" title="ダブルクリックで名前を変更" onDoubleClick={() => setEditing(true)}>
+      {mm.current.name}
+    </button>
+  )
+}
+
+// 選択中ノードのコンテキストツールバー
+function SelectionBar({ node, size, view, mm, isRoot, hasChildren, onEdit, setEditingId }) {
+  const left = view.x + (node.x + size.w / 2) * view.scale
+  const top = view.y + node.y * view.scale
+  return (
+    <div
+      className="selection-bar"
+      style={{ left, top }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className="icon-btn"
+        title="子ノードを追加 (Tab)"
+        onClick={() => {
+          const id = mm.addChild(node.id)
+          if (id) setEditingId(id)
+        }}
+      >
+        <Icon name="add-child" />
+      </button>
+      <button
+        className="icon-btn"
+        title="兄弟ノードを追加 (Enter)"
+        disabled={isRoot}
+        onClick={() => {
+          const id = mm.addSibling(node.id)
+          if (id) setEditingId(id)
+        }}
+      >
+        <Icon name="add-sibling" />
+      </button>
+      <button className="icon-btn" title="テキストを編集 (F2)" onClick={onEdit}>
+        <Icon name="pencil" />
+      </button>
+      <button
+        className="icon-btn"
+        title={node.collapsed ? '展開 (Space)' : '折りたたむ (Space)'}
+        disabled={!hasChildren}
+        onClick={() => mm.toggleCollapse(node.id)}
+      >
+        <Icon name={node.collapsed ? 'unfold' : 'fold'} />
+      </button>
+      <span className="sb-div" />
+      <span className="sb-colors">
+        {mm.PALETTE.map((c) => (
+          <button
+            key={c}
+            className={`swatch${node.color === c ? ' on' : ''}`}
+            title="色を変更"
+            style={{ background: c }}
+            onClick={() => mm.setColor(node.id, c)}
+          />
+        ))}
+      </span>
+      <span className="sb-div" />
+      <button
+        className="icon-btn danger"
+        title="削除 (Delete)"
+        disabled={isRoot}
+        onClick={() => mm.deleteNode(node.id)}
+      >
+        <Icon name="trash" />
+      </button>
+    </div>
+  )
+}
+
 function NodeView({
   node, isRoot, selected, editing, hiddenCount,
   onPointerDown, onStartEdit, onToggleCollapse, onText, onEndEdit,
 }) {
   const inputRef = useRef(null)
-  const originalRef = useRef(node.text) // Escでの取り消し用
+  const originalRef = useRef(node.text)
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -433,7 +594,7 @@ function NodeView({
         minWidth: NODE_MIN_W,
         borderColor: node.color,
         background: isRoot ? node.color : '#ffffff',
-        color: isRoot ? '#fff' : '#1e293b',
+        color: isRoot ? '#fff' : 'var(--ink)',
       }}
       onPointerDown={(e) => onPointerDown(e, node)}
       onDoubleClick={(e) => {
@@ -450,14 +611,13 @@ function NodeView({
           onBlur={onEndEdit}
           onKeyDown={(e) => {
             e.stopPropagation()
-            // IME変換確定のEnterでは決定しない
             if (isComposingEvent(e)) return
             if (e.key === 'Enter') {
               e.preventDefault()
               onEndEdit()
             } else if (e.key === 'Escape') {
               e.preventDefault()
-              onText(originalRef.current) // 編集前に戻す
+              onText(originalRef.current)
               onEndEdit()
             }
           }}
@@ -479,81 +639,6 @@ function NodeView({
           +{hiddenCount}
         </button>
       )}
-    </div>
-  )
-}
-
-function Toolbar({ mm, selected, hasChildren, onRecenter, onExportPNG, setEditingId, sidebarOpen, onToggleSidebar }) {
-  const canEdit = !!selected
-  return (
-    <div className="toolbar">
-      <button className="icon-btn" title="マップ一覧" onClick={onToggleSidebar}>
-        {sidebarOpen ? '◀' : '☰'}
-      </button>
-      <span className="brand">🧠 Nobleme MindMap</span>
-      <span className="cur-name" title="現在のマップ">{mm.current.name}</span>
-
-      <span className="sep" />
-
-      <button title="元に戻す (⌘Z)" disabled={!mm.canUndo} onClick={mm.undo}>↩︎</button>
-      <button title="やり直す (⌘⇧Z)" disabled={!mm.canRedo} onClick={mm.redo}>↪︎</button>
-
-      <span className="sep" />
-
-      <button
-        disabled={!canEdit}
-        onClick={() => {
-          const id = mm.addChild(selected.id)
-          if (id) setEditingId(id)
-        }}
-      >
-        ＋ 子ノード
-      </button>
-      <button
-        disabled={!canEdit || selected.parentId == null}
-        onClick={() => {
-          const id = mm.addSibling(selected.id)
-          if (id) setEditingId(id)
-        }}
-      >
-        ＋ 兄弟ノード
-      </button>
-      <button disabled={!canEdit} onClick={() => setEditingId(selected.id)}>
-        ✎ 編集
-      </button>
-      <button
-        title="子ノードを折りたたみ/展開 (Space)"
-        disabled={!canEdit || !hasChildren}
-        onClick={() => mm.toggleCollapse(selected.id)}
-      >
-        {selected?.collapsed ? '⊞ 展開' : '⊟ たたむ'}
-      </button>
-      <button
-        disabled={!canEdit || selected.id === mm.state.rootId}
-        onClick={() => mm.deleteNode(selected.id)}
-      >
-        🗑 削除
-      </button>
-
-      <span className="sep" />
-
-      <div className="colors">
-        {mm.PALETTE.map((c) => (
-          <button
-            key={c}
-            className="swatch"
-            title="色を変更"
-            disabled={!canEdit}
-            style={{ background: c }}
-            onClick={() => mm.setColor(selected.id, c)}
-          />
-        ))}
-      </div>
-
-      <span className="sep" />
-
-      <button onClick={onRecenter}>⌖ 全体表示</button>
-      <button title="PNG画像として保存" onClick={onExportPNG}>🖼 PNG</button>
     </div>
   )
 }
@@ -592,7 +677,7 @@ function Sidebar({ mm }) {
 
   const onImportFile = (e) => {
     const file = e.target.files?.[0]
-    e.target.value = '' // 同じファイルを連続で選べるようにリセット
+    e.target.value = ''
     if (!file) return
     const binary = isBinaryImport(file.name)
     const reader = new FileReader()
@@ -612,19 +697,24 @@ function Sidebar({ mm }) {
   }
 
   return (
-    <div className="sidebar">
+    <aside className="sidebar">
+      <CloudPanel cloud={mm.cloud} />
       <div className="sidebar-head">
         <span>マイマップ</span>
-        <button className="new-btn" onClick={() => mm.newProject()}>＋ 新規</button>
+        <button className="btn-primary sm" onClick={() => mm.newProject()}>
+          <Icon name="plus" size={13} /> 新規
+        </button>
       </div>
-      <CloudPanel cloud={mm.cloud} />
       <div className="backup-bar">
-        <button title="全マップをバックアップ書き出し" onClick={exportAll}>⬇ バックアップ</button>
+        <button className="btn sm" title="全マップをバックアップ書き出し" onClick={exportAll}>
+          <Icon name="download" size={13} /> バックアップ
+        </button>
         <button
+          className="btn sm"
           title="ファイルから読み込み（JSON / MindMeister(.mind) / OPML / FreeMind(.mm) / Markdown）"
           onClick={() => fileRef.current?.click()}
         >
-          ⬆ 読み込み
+          <Icon name="upload" size={13} /> 読み込み
         </button>
         <input
           ref={fileRef}
@@ -654,7 +744,7 @@ function Sidebar({ mm }) {
                   setRenamingId(null)
                 }}
                 onKeyDown={(e) => {
-                  if (isComposingEvent(e)) return // IME変換確定のEnterは無視
+                  if (isComposingEvent(e)) return
                   if (e.key === 'Enter') e.target.blur()
                   if (e.key === 'Escape') setRenamingId(null)
                 }}
@@ -670,7 +760,7 @@ function Sidebar({ mm }) {
                       exportOne(p)
                     }}
                   >
-                    ⬇
+                    <Icon name="download" size={13} />
                   </button>
                   <button
                     title="複製"
@@ -679,7 +769,7 @@ function Sidebar({ mm }) {
                       mm.duplicateProject(p.id)
                     }}
                   >
-                    ⧉
+                    <Icon name="copy" size={13} />
                   </button>
                   <button
                     title="名前を変更"
@@ -688,7 +778,7 @@ function Sidebar({ mm }) {
                       setRenamingId(p.id)
                     }}
                   >
-                    ✎
+                    <Icon name="pencil" size={13} />
                   </button>
                   <button
                     title="削除"
@@ -697,7 +787,7 @@ function Sidebar({ mm }) {
                       if (confirm(`「${p.name}」を削除しますか？`)) mm.deleteProject(p.id)
                     }}
                   >
-                    ×
+                    <Icon name="x" size={13} />
                   </button>
                 </span>
               </>
@@ -706,15 +796,16 @@ function Sidebar({ mm }) {
         ))}
       </div>
       <div className="sidebar-foot">
-        <div>{projects.length} マップ ・ 自動保存</div>
-        <div className="foot-links">
-          <button type="button" className="auth-link inline" onClick={() => setLegalTab('terms')}>利用規約</button>
-          ・
-          <button type="button" className="auth-link inline" onClick={() => setLegalTab('privacy')}>プライバシー</button>
-        </div>
+        <span>
+          {projects.length} マップ ・ 自動保存
+        </span>
+        <span className="foot-links">
+          <button type="button" onClick={() => setLegalTab('terms')}>利用規約</button>
+          <button type="button" onClick={() => setLegalTab('privacy')}>プライバシー</button>
+        </span>
       </div>
       {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
-    </div>
+    </aside>
   )
 }
 
@@ -736,9 +827,9 @@ function CloudPanel({ cloud }) {
     return (
       <div className="cloud-bar">
         <button className="cloud-login-btn" onClick={() => setModalOpen(true)}>
-          ☁ ログイン / 新規登録
+          <Icon name="cloud" size={15} /> ログイン / 新規登録
         </button>
-        <div className="cloud-note">ログインすると全PCでマップを同期</div>
+        <div className="cloud-note">ログインすると全デバイスでマップを同期</div>
         {modalOpen && <AuthModal cloud={cloud} onClose={() => setModalOpen(false)} />}
       </div>
     )
@@ -752,15 +843,20 @@ function CloudPanel({ cloud }) {
       </div>
       <div className="cloud-actions">
         <span className="sync-label">{SYNC_LABEL[cloud.syncState]}</span>
-        <button title="今すぐ同期" onClick={() => cloud.fullSync()}>↻</button>
-        <button title="パスワード変更" onClick={() => setPwOpen(true)}>🔑</button>
+        <button className="icon-btn xs" title="今すぐ同期" onClick={() => cloud.fullSync()}>
+          <Icon name="refresh" size={13} />
+        </button>
+        <button className="icon-btn xs" title="パスワード変更" onClick={() => setPwOpen(true)}>
+          <Icon name="key" size={13} />
+        </button>
         <button
+          className="icon-btn xs"
           title="ログアウト"
           onClick={() => {
             if (confirm('ログアウトしますか？\n（このPCのローカルデータはそのまま残ります）')) cloud.signOut()
           }}
         >
-          ログアウト
+          <Icon name="logout" size={13} />
         </button>
       </div>
       {pwOpen && <PasswordModal cloud={cloud} title="パスワード変更" onClose={() => setPwOpen(false)} />}
@@ -785,8 +881,8 @@ function AuthModal({ cloud, onClose }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState(null) // {type:'error'|'info', text}
-  const [legalTab, setLegalTab] = useState(null) // 'terms' | 'privacy' | null
+  const [message, setMessage] = useState(null)
+  const [legalTab, setLegalTab] = useState(null)
 
   const submit = async (e) => {
     e.preventDefault()
@@ -797,7 +893,7 @@ function AuthModal({ cloud, onClose }) {
       if (mode === 'signup') {
         const { data, error } = await cloud.signUp(email.trim(), password)
         if (error) setMessage({ type: 'error', text: jpError(error) })
-        else if (data.session) onClose() // 即ログイン（メール確認オフ設定時）
+        else if (data.session) onClose()
         else setMessage({ type: 'info', text: '確認メールを送信しました。メール内のリンクを開くと登録完了です。' })
       } else if (mode === 'forgot') {
         const { error } = await cloud.resetPassword(email.trim())
@@ -813,7 +909,7 @@ function AuthModal({ cloud, onClose }) {
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <form className="auth-modal" onSubmit={submit}>
         {mode !== 'forgot' ? (
@@ -822,7 +918,7 @@ function AuthModal({ cloud, onClose }) {
             <button type="button" className={mode === 'signup' ? 'on' : ''} onClick={() => { setMode('signup'); setMessage(null) }}>新規登録</button>
           </div>
         ) : (
-          <div className="auth-forgot-head">パスワード再設定</div>
+          <div className="auth-head">パスワード再設定</div>
         )}
         <label>
           メールアドレス
@@ -860,8 +956,8 @@ function AuthModal({ cloud, onClose }) {
           </button>
         )}
         <div className="auth-buttons">
-          <button type="button" onClick={onClose}>キャンセル</button>
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="button" className="btn" onClick={onClose}>キャンセル</button>
+          <button type="submit" className="btn-primary" disabled={busy}>
             {busy ? '処理中…' : mode === 'login' ? 'ログイン' : mode === 'signup' ? '登録する' : '再設定メールを送る'}
           </button>
         </div>
@@ -880,11 +976,11 @@ function AuthModal({ cloud, onClose }) {
         )}
         {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
-// 新しいパスワードの設定（リセットリンク経由・ログイン中の変更 共用）
 function PasswordModal({ cloud, title, onClose }) {
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
@@ -912,10 +1008,10 @@ function PasswordModal({ cloud, title, onClose }) {
     }
   }
 
-  return (
+  return createPortal(
     <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <form className="auth-modal" onSubmit={submit}>
-        <div className="auth-forgot-head">{title}</div>
+        <div className="auth-head">{title}</div>
         <label>
           新しいパスワード（6文字以上）
           <input type="password" required minLength={6} autoFocus value={pw1} onChange={(e) => setPw1(e.target.value)} />
@@ -926,18 +1022,18 @@ function PasswordModal({ cloud, title, onClose }) {
         </label>
         {message && <div className={`auth-msg ${message.type}`}>{message.text}</div>}
         <div className="auth-buttons">
-          <button type="button" onClick={onClose}>キャンセル</button>
-          <button type="submit" className="primary" disabled={busy}>{busy ? '処理中…' : '変更する'}</button>
+          <button type="button" className="btn" onClick={onClose}>キャンセル</button>
+          <button type="submit" className="btn-primary" disabled={busy}>{busy ? '処理中…' : '変更する'}</button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
-// 利用規約・プライバシーポリシー
 function LegalModal({ tab: initialTab, onClose }) {
   const [tab, setTab] = useState(initialTab || 'terms')
-  return (
+  return createPortal(
     <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="legal-modal">
         <div className="auth-tabs">
@@ -946,9 +1042,10 @@ function LegalModal({ tab: initialTab, onClose }) {
         </div>
         <div className="legal-body">{tab === 'terms' ? TERMS_TEXT : PRIVACY_TEXT}</div>
         <div className="auth-buttons">
-          <button type="button" onClick={onClose}>閉じる</button>
+          <button type="button" className="btn" onClick={onClose}>閉じる</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

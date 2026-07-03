@@ -8,7 +8,7 @@
 import { parseImport } from './storage'
 import { unzipSync, strFromU8 } from 'fflate'
 
-const PALETTE = ['#2563eb', '#16a34a', '#db2777', '#ea580c', '#7c3aed', '#0891b2', '#ca8a04']
+const PALETTE = ['#5B8DEF', '#34B27B', '#E0538D', '#EE7B3F', '#8B6EF3', '#2BAAB8', '#D9930D']
 const COL_W = 220 // 階層ごとの横間隔
 const ROW_H = 70 // 葉ノードの縦間隔
 
@@ -30,7 +30,7 @@ function treeToData(tree, { positions = false } = {}) {
       x: depth * COL_W,
       y: 0,
       parentId,
-      color: parentId === null ? '#1e293b' : node.color || PALETTE[(depth - 1) % PALETTE.length],
+      color: parentId === null ? '#16181D' : node.color || PALETTE[(depth - 1) % PALETTE.length],
     }
     for (const c of node.children) assign(c, id, depth + 1)
   }
