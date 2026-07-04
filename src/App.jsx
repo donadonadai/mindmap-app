@@ -5,7 +5,10 @@ import { downloadJSON, safeFileName } from './storage'
 import { importAnyFile, importBinaryFile, isBinaryImport } from './importers'
 import { TERMS_TEXT, PRIVACY_TEXT } from './legal'
 import { Icon, LogoMark } from './icons'
+import { HelpModal } from './help'
 import './App.css'
+
+const HELP_SEEN_KEY = 'mindmap:help-seen:v1'
 
 const NODE_MIN_W = 80
 const DEFAULT_SIZE = { w: 140, h: 44 }
@@ -28,6 +31,23 @@ export default function App() {
   const [, forceTick] = useState(0)        // サイズ確定後の再描画用
   const [editingId, setEditingId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // 使い方ガイド（初回訪問時は自動で開く）
+  const [helpOpen, setHelpOpen] = useState(() => {
+    try {
+      return !localStorage.getItem(HELP_SEEN_KEY)
+    } catch {
+      return false
+    }
+  })
+  const closeHelp = useCallback(() => {
+    try {
+      localStorage.setItem(HELP_SEEN_KEY, '1')
+    } catch {
+      // 保存できなくても閉じる
+    }
+    setHelpOpen(false)
+  }, [])
 
   // ドラッグ状態 (ノード移動 or 背景パン)
   const drag = useRef(null)
@@ -440,6 +460,10 @@ export default function App() {
           <button className="icon-btn" onClick={exportPNG} title="PNG画像として保存">
             <Icon name="image" />
           </button>
+          <span className="tb-div" />
+          <button className="icon-btn" onClick={() => setHelpOpen(true)} title="使い方">
+            <Icon name="help" />
+          </button>
         </div>
       </header>
 
@@ -460,6 +484,8 @@ export default function App() {
       <div className="hint-chip" style={{ left: `calc(50% + ${sidebarOpen ? SIDEBAR_W / 2 : 0}px)` }}>
         <kbd>Tab</kbd>子 <kbd>Enter</kbd>兄弟 <kbd>Space</kbd>たたむ <kbd>⌘Z</kbd>戻す ・ ダブルクリックで編集
       </div>
+
+      {helpOpen && <HelpModal onClose={closeHelp} />}
 
       {mm.cloud.recoveryMode && (
         <PasswordModal

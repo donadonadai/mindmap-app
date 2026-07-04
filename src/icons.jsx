@@ -142,6 +142,36 @@ const PATHS = {
       <path d="M21 12H9" />
     </>
   ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+  mouse: (
+    <>
+      <rect x="6" y="3" width="12" height="18" rx="6" />
+      <path d="M12 7v4" />
+    </>
+  ),
+  keyboard: (
+    <>
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <path d="M6 9h.01" />
+      <path d="M10 9h.01" />
+      <path d="M14 9h.01" />
+      <path d="M18 9h.01" />
+      <path d="M7 13h10" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="m12 2 8.5 4.5L12 11 3.5 6.5Z" />
+      <path d="m3.5 12 8.5 4.5 8.5-4.5" />
+      <path d="m3.5 17.5 8.5 4.5 8.5-4.5" />
+    </>
+  ),
 }
 
 export function Icon({ name, size = 16, strokeWidth = 1.8 }) {

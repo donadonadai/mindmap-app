@@ -905,6 +905,142 @@ body {
   line-height: 1.7;
 }
 
+/* ============ 使い方ガイド ============ */
+
+.help-modal {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  width: min(600px, 92vw);
+  max-height: 84vh;
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modal-in 0.18s ease-out;
+}
+
+.help-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.help-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+
+.help-body {
+  overflow-y: auto;
+  padding: 8px 24px 16px;
+}
+
+.help-body section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-body section:last-child {
+  border-bottom: none;
+}
+
+.help-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.help-body h3 svg {
+  color: var(--accent);
+}
+
+.help-steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 2;
+  color: var(--text);
+}
+
+.help-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--text);
+}
+
+.help-list svg {
+  vertical-align: -2px;
+  color: var(--text-2);
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.help-table td {
+  padding: 5px 0;
+  vertical-align: top;
+}
+
+.help-table td:first-child {
+  width: 42%;
+  color: var(--ink);
+  font-weight: 500;
+  padding-right: 12px;
+}
+
+.g-kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 1px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #fafafb;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.help-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: #fafafb;
+}
+
+.help-foot-note {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.help-foot-note svg {
+  vertical-align: -2px;
+}
+
 /* 利用規約モーダル */
 .legal-modal {
   background: var(--surface);
