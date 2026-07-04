@@ -280,6 +280,55 @@ export default function App() {
     }
   }, [current.id, recenter])
 
+  // --- 自動整列（実サイズを考慮したツリーレイアウト） ---
+  // 列: 階層ごと（前の列の最大幅 + 間隔）、縦: 葉を重ならず積み、親は子の中央。
+  // 現在の上下の並び順は保つ。折りたたみ中の枝も含めて整列する。
+  const autoArrange = useCallback(() => {
+    const { nodes, rootId } = state
+    if (!nodes[rootId]) return
+    const H_GAP = 70
+    const V_GAP = 18
+    const sizeOf = (id) => sizesRef.current[id] || DEFAULT_SIZE
+
+    // 深さの割り当てと列幅の集計
+    const depthOf = new Map()
+    const walk = (id, depth) => {
+      depthOf.set(id, depth)
+      for (const c of childrenMap.get(id) || []) walk(c.id, depth + 1)
+    }
+    walk(rootId, 0)
+    const colWidth = []
+    for (const [id, d] of depthOf) {
+      colWidth[d] = Math.max(colWidth[d] || 0, sizeOf(id).w)
+    }
+    const colX = [0]
+    for (let d = 1; d < colWidth.length; d++) colX[d] = colX[d - 1] + colWidth[d - 1] + H_GAP
+
+    // 縦位置: 葉を順に積み、親は子全体の中央に
+    let cursor = 0
+    const positions = new Map()
+    const layoutY = (id) => {
+      const kids = childrenMap.get(id) || []
+      const h = sizeOf(id).h
+      let y
+      if (kids.length === 0) {
+        y = cursor
+        cursor += h + V_GAP
+      } else {
+        for (const k of kids) layoutY(k.id)
+        const firstTop = positions.get(kids[0].id).y
+        const last = kids[kids.length - 1]
+        const lastBottom = positions.get(last.id).y + sizeOf(last.id).h
+        y = (firstTop + lastBottom) / 2 - h / 2
+      }
+      positions.set(id, { x: colX[depthOf.get(id)], y })
+    }
+    layoutY(rootId)
+
+    mm.applyLayout(positions)
+    requestAnimationFrame(() => recenter())
+  }, [state, childrenMap, mm, recenter])
+
   // --- PNG画像として書き出し ---
   const exportPNG = useCallback(() => {
     const ids = [...visibleIds]
@@ -454,6 +503,9 @@ export default function App() {
             <Icon name="redo" />
           </button>
           <span className="tb-div" />
+          <button className="icon-btn" onClick={autoArrange} title="自動整列（重なったノードを整える）">
+            <Icon name="tidy" />
+          </button>
           <button className="icon-btn" onClick={recenter} title="全体表示">
             <Icon name="fit" />
           </button>

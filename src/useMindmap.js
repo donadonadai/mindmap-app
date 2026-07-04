@@ -503,6 +503,18 @@ export function useMindmap() {
     updateData((data) => ({ ...data, nodes: { ...data.nodes, [id]: { ...data.nodes[id], color } } }))
   }, [updateData, pushHistory])
 
+  // 自動整列: 計算済みの座標一式を1回の履歴でまとめて適用
+  const applyLayout = useCallback((positions) => {
+    pushHistory()
+    updateData((data) => {
+      const nodes = { ...data.nodes }
+      for (const [id, pos] of positions) {
+        if (nodes[id]) nodes[id] = { ...nodes[id], x: pos.x, y: pos.y }
+      }
+      return { ...data, nodes }
+    })
+  }, [updateData, pushHistory])
+
   const toggleCollapse = useCallback((id) => {
     pushHistory()
     updateData((data) => {
@@ -579,6 +591,7 @@ export function useMindmap() {
     setColor,
     toggleCollapse,
     deleteNode,
+    applyLayout,
     PALETTE,
   }
 }
