@@ -256,6 +256,15 @@ body {
     0 6px 16px rgba(22, 24, 29, 0.1);
 }
 
+/* ドラッグ中のドロップ先候補（離すとこの子に付け替え） */
+.node.drop-target {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 5px var(--accent),
+    0 6px 16px rgba(45, 91, 255, 0.25);
+  transform: scale(1.05);
+}
+
 .node-text {
   pointer-events: none;
 }

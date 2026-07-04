@@ -38,6 +38,7 @@ export function HelpModal({ onClose }) {
             <table className="help-table">
               <tbody>
                 <tr><td>ノードをドラッグ</td><td>ノードを移動</td></tr>
+                <tr><td>ノードを別のノードに重ねて離す</td><td>その枝の子として付け替え（枝ごと引っ越し）</td></tr>
                 <tr><td>背景をドラッグ</td><td>キャンバス全体を移動</td></tr>
                 <tr><td>マウスホイール</td><td>ズーム（カーソル位置を中心に）</td></tr>
                 <tr><td>ダブルクリック</td><td>テキストを編集</td></tr>

@@ -503,6 +503,51 @@ export function useMindmap() {
     updateData((data) => ({ ...data, nodes: { ...data.nodes, [id]: { ...data.nodes[id], color } } }))
   }, [updateData, pushHistory])
 
+  // ノードの付け替え: id を newParentId の子にする（子孫ごと移動、部分木の形は維持）
+  // baseX/baseY はドラッグ開始時の位置（子孫の平行移動量の基準）
+  const reparentNode = useCallback((id, newParentId, baseX, baseY) => {
+    const data0 = getCurrentData()
+    const node = data0.nodes[id]
+    const target = data0.nodes[newParentId]
+    if (!node || !target || id === newParentId) return false
+    if (id === data0.rootId) return false // ルートは付け替え不可
+    if (node.parentId === newParentId) return false // すでにその親
+    // 循環チェック: 付け替え先が自分の子孫なら不可
+    let p = target
+    while (p) {
+      if (p.id === id) return false
+      p = p.parentId ? data0.nodes[p.parentId] : null
+    }
+    pushHistory()
+    updateData((data) => {
+      const n = data.nodes[id]
+      const t = data.nodes[newParentId]
+      if (!n || !t) return data
+      // 新しい位置は addChild と同じ配置規則（親の右、既存の子の下）
+      const { x, y } = placeChild(data.nodes, newParentId)
+      const dx = x - (baseX ?? n.x)
+      const dy = y - (baseY ?? n.y)
+      // 子孫を収集
+      const childrenOf = {}
+      for (const nn of Object.values(data.nodes)) {
+        if (nn.parentId != null) (childrenOf[nn.parentId] ??= []).push(nn.id)
+      }
+      const nodes = { ...data.nodes }
+      const stack = [...(childrenOf[id] || [])]
+      while (stack.length) {
+        const cur = stack.pop()
+        const c = nodes[cur]
+        nodes[cur] = { ...c, x: c.x + dx, y: c.y + dy }
+        for (const k of childrenOf[cur] || []) stack.push(k)
+      }
+      nodes[id] = { ...nodes[id], x, y, parentId: newParentId }
+      // 折りたたまれた親に付け替えたら自動で展開（見えなくなるのを防ぐ）
+      if (t.collapsed) nodes[newParentId] = { ...nodes[newParentId], collapsed: false }
+      return { ...data, nodes }
+    })
+    return true
+  }, [updateData, pushHistory])
+
   // 自動整列: 計算済みの座標一式を1回の履歴でまとめて適用
   const applyLayout = useCallback((positions) => {
     pushHistory()
@@ -591,6 +636,7 @@ export function useMindmap() {
     setColor,
     toggleCollapse,
     deleteNode,
+    reparentNode,
     applyLayout,
     PALETTE,
   }

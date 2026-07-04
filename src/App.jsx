@@ -51,6 +51,9 @@ export default function App() {
 
   // ドラッグ状態 (ノード移動 or 背景パン)
   const drag = useRef(null)
+  // ドラッグ中のドロップ先候補（この上で離すと付け替え）
+  const dropTargetRef = useRef(null)
+  const [dropTarget, setDropTarget] = useState(null)
 
   // ---- 子ノード索引・表示中ノード集合（折りたたみ反映）----
   const { childrenMap, visibleIds, descCount } = useMemo(() => {
@@ -144,6 +147,18 @@ export default function App() {
     if (editingId === node.id) return
     e.stopPropagation()
     setSelectedId(node.id)
+    // 付け替え不可の相手（自分自身＋自分の子孫）を先に集めておく
+    const invalid = new Set([node.id])
+    const stack = [node.id]
+    while (stack.length) {
+      const cur = stack.pop()
+      for (const k of childrenMap.get(cur) || []) {
+        if (!invalid.has(k.id)) {
+          invalid.add(k.id)
+          stack.push(k.id)
+        }
+      }
+    }
     drag.current = {
       type: 'node',
       id: node.id,
@@ -151,8 +166,17 @@ export default function App() {
       startY: e.clientY,
       ox: node.x,
       oy: node.y,
+      invalid,
+      moved: false,
     }
     e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  const updateDropTarget = (id) => {
+    if (dropTargetRef.current !== id) {
+      dropTargetRef.current = id
+      setDropTarget(id)
+    }
   }
 
   const onPointerMove = (e) => {
@@ -165,10 +189,33 @@ export default function App() {
       const dx = (e.clientX - d.startX) / v.scale
       const dy = (e.clientY - d.startY) / v.scale
       mm.moveNode(d.id, d.ox + dx, d.oy + dy)
+
+      // ドロップ先の検出（別ノードの上で離すと付け替え）
+      if (!d.moved && Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) > 8) d.moved = true
+      if (d.moved && d.id !== state.rootId) {
+        let targetId = null
+        for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+          const hit = el.closest?.('.node')
+          if (!hit) continue
+          const hid = hit.id.replace('node-', '')
+          if (d.invalid.has(hid)) continue // 自分自身と子孫は不可
+          if (!state.nodes[hid]) continue
+          if (state.nodes[d.id]?.parentId === hid) break // 現在の親は対象外
+          targetId = hid
+          break
+        }
+        updateDropTarget(targetId)
+      }
     }
   }
 
   const onPointerUp = () => {
+    const d = drag.current
+    if (d?.type === 'node' && dropTargetRef.current) {
+      // ドロップ先の子として付け替え（子孫ごと・ドラッグ開始位置を基準に形を維持）
+      mm.reparentNode(d.id, dropTargetRef.current, d.ox, d.oy)
+    }
+    updateDropTarget(null)
     drag.current = null
   }
 
@@ -509,6 +556,7 @@ export default function App() {
                 isRoot={node.id === state.rootId}
                 selected={node.id === selectedId}
                 editing={node.id === editingId}
+                isDropTarget={node.id === dropTarget}
                 hiddenCount={node.collapsed ? descCount(node.id) : 0}
                 onPointerDown={onPointerDownNode}
                 onStartEdit={() => setEditingId(node.id)}
@@ -748,7 +796,7 @@ function SelectionBar({ node, size, view, mm, isRoot, hasChildren, onEdit, setEd
 }
 
 function NodeView({
-  node, isRoot, selected, editing, hiddenCount,
+  node, isRoot, selected, editing, isDropTarget, hiddenCount,
   onPointerDown, onStartEdit, onToggleCollapse, onText, onEndEdit,
 }) {
   const inputRef = useRef(null)
@@ -766,7 +814,7 @@ function NodeView({
   return (
     <div
       id={`node-${node.id}`}
-      className={`node${isRoot ? ' root' : ''}${selected ? ' selected' : ''}`}
+      className={`node${isRoot ? ' root' : ''}${selected ? ' selected' : ''}${isDropTarget ? ' drop-target' : ''}`}
       style={{
         left: node.x,
         top: node.y,
