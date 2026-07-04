@@ -677,6 +677,7 @@ function Sidebar({ mm }) {
   const { store, current } = mm
   const [renamingId, setRenamingId] = useState(null)
   const [legalTab, setLegalTab] = useState(null)
+  const [deleting, setDeleting] = useState(null) // { id, name } | null
   const fileRef = useRef(null)
   const projects = [...store.projects].sort((a, b) => b.updatedAt - a.updatedAt)
 
@@ -814,7 +815,7 @@ function Sidebar({ mm }) {
                     title="削除"
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (confirm(`「${p.name}」を削除しますか？`)) mm.deleteProject(p.id)
+                      setDeleting({ id: p.id, name: p.name })
                     }}
                   >
                     <Icon name="x" size={13} />
@@ -835,7 +836,41 @@ function Sidebar({ mm }) {
         </span>
       </div>
       {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
+      {deleting && (
+        <DeleteMapModal
+          name={deleting.name}
+          loggedIn={!!mm.cloud.user}
+          onCancel={() => setDeleting(null)}
+          onDelete={() => {
+            mm.deleteProject(deleting.id)
+            setDeleting(null)
+          }}
+        />
+      )}
     </aside>
+  )
+}
+
+// マップ削除の確認ダイアログ
+function DeleteMapModal({ name, loggedIn, onCancel, onDelete }) {
+  return createPortal(
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onCancel() }}>
+      <div className="auth-modal">
+        <div className="auth-head">マップを削除</div>
+        <div className="merge-desc">
+          「<b>{name}</b>」を削除します。よろしいですか？
+        </div>
+        <div className="auth-msg error">
+          この操作は元に戻せません。
+          {loggedIn && <>クラウド（アカウント）からも削除されます。</>}
+        </div>
+        <div className="auth-buttons">
+          <button type="button" className="btn" onClick={onCancel}>キャンセル</button>
+          <button type="button" className="btn-danger" onClick={onDelete}>削除する</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

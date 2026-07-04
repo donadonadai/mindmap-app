@@ -139,8 +139,31 @@ body {
   border-color: var(--accent-hover);
 }
 
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+  padding: 8px 14px;
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c93d42;
+  border-color: #c93d42;
+}
+
 .btn:disabled,
-.btn-primary:disabled {
+.btn-primary:disabled,
+.btn-danger:disabled {
   opacity: 0.45;
   cursor: default;
 }

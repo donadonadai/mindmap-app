@@ -81,11 +81,17 @@ export function useMindmap() {
   const [recoveryMode, setRecoveryMode] = useState(false)
 
   // ログイン状態の監視
+  // トークン更新やタブのフォーカス復帰でも onAuthStateChange は発火するため、
+  // ユーザーIDが変わらない限り state を更新しない（不要なログイン同期の再実行を防ぐ）
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
+    supabase.auth.getSession().then(({ data }) => {
+      const next = data.session?.user ?? null
+      setUser((prev) => (prev?.id === next?.id ? prev : next))
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null)
+      const next = session?.user ?? null
+      setUser((prev) => (prev?.id === next?.id ? prev : next))
       if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true)
     })
     return () => sub.subscription.unsubscribe()
@@ -111,12 +117,16 @@ export function useMindmap() {
   const [mergePrompt, setMergePrompt] = useState(null)
   const pendingMergeRef = useRef(null) // { rows, askIds, autoDrop }
   const syncGateRef = useRef(false) // 確認待ちの間はアップロードを止める
+  // 削除予約: サーバへの削除反映が済むまで、同期でそのマップが復活しないようにする
+  const pendingDeletesRef = useRef(new Set())
 
   // サーバ⇄ローカルをマージ（新しい方が勝ち）して差分をアップロード
   // dropIds のローカルマップは取り込まず破棄する
   const applyMerge = useCallback(async (rows, dropIds = new Set()) => {
     const u = userRef.current
     const s = storeRef.current
+    // 削除予約中のマップはサーバ側に残っていても取り込まない（削除直後の復活防止）
+    rows = rows.filter((r) => !pendingDeletesRef.current.has(r.id))
     const kept = s.projects.filter((p) => !dropIds.has(p.id))
     const byId = new Map(kept.map((p) => [p.id, p]))
     const serverMs = new Map()
@@ -224,6 +234,7 @@ export function useMindmap() {
     } else {
       lastPushedRef.current = new Map()
       pendingMergeRef.current = null
+      pendingDeletesRef.current = new Set()
       syncGateRef.current = false
       setMergePrompt(null)
       setSyncState('idle')
@@ -239,7 +250,12 @@ export function useMindmap() {
       const s = storeRef.current
       const dirty = s.projects.filter((p) => (lastPushedRef.current.get(p.id) ?? 0) < p.updatedAt)
       const localIds = new Set(s.projects.map((p) => p.id))
-      const removed = [...lastPushedRef.current.keys()].filter((id) => !localIds.has(id))
+      // 送信済み一覧との差分 + 削除予約、の両方をサーバから削除する
+      const removedSet = new Set(
+        [...lastPushedRef.current.keys()].filter((id) => !localIds.has(id)),
+      )
+      for (const id of pendingDeletesRef.current) if (!localIds.has(id)) removedSet.add(id)
+      const removed = [...removedSet]
       if (!dirty.length && !removed.length) return
       setSyncState('syncing')
       try {
@@ -253,7 +269,10 @@ export function useMindmap() {
         if (removed.length) {
           const { error } = await supabase.from('maps').delete().in('id', removed)
           if (error) throw error
-          for (const id of removed) lastPushedRef.current.delete(id)
+          for (const id of removed) {
+            lastPushedRef.current.delete(id)
+            pendingDeletesRef.current.delete(id)
+          }
         }
         setSyncState('synced')
       } catch (err) {
@@ -394,6 +413,8 @@ export function useMindmap() {
   }, [])
 
   const deleteProject = useCallback((id) => {
+    // 同期による復活を防ぐため、サーバ削除が完了するまで削除予約に入れる
+    pendingDeletesRef.current.add(id)
     setStore((s) => {
       const remaining = s.projects.filter((p) => p.id !== id)
       if (remaining.length === 0) {
