@@ -905,6 +905,40 @@ body {
   line-height: 1.7;
 }
 
+/* 取り込み確認 */
+.merge-desc {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.merge-list {
+  margin: 0;
+  padding: 10px 14px;
+  list-style: none;
+  background: #fafafb;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: 12.5px;
+  color: var(--ink);
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.merge-list li::before {
+  content: '・';
+  color: var(--text-2);
+}
+
+.merge-list .merge-rest {
+  color: var(--text-2);
+  font-weight: 400;
+}
+
 /* ============ 使い方ガイド ============ */
 
 .help-modal {

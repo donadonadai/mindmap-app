@@ -487,6 +487,10 @@ export default function App() {
 
       {helpOpen && <HelpModal onClose={closeHelp} />}
 
+      {mm.cloud.mergePrompt && (
+        <MergeModal prompt={mm.cloud.mergePrompt} onResolve={mm.cloud.resolveMergePrompt} />
+      )}
+
       {mm.cloud.recoveryMode && (
         <PasswordModal
           cloud={mm.cloud}
@@ -1002,6 +1006,56 @@ function AuthModal({ cloud, onClose }) {
         )}
         {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
       </form>
+    </div>,
+    document.body,
+  )
+}
+
+// ログイン時: ログイン前に作ったマップをアカウントに追加するかの確認
+function MergeModal({ prompt, onResolve }) {
+  const [busy, setBusy] = useState(false)
+  const shown = prompt.names.slice(0, 5)
+  const rest = prompt.count - shown.length
+
+  const choose = async (addLocal) => {
+    if (busy) return
+    if (!addLocal) {
+      const ok = confirm(
+        `${prompt.count} 件のマップをこのブラウザから削除し、アカウントのマップだけにします。よろしいですか？`,
+      )
+      if (!ok) return
+    }
+    setBusy(true)
+    await onResolve(addLocal)
+  }
+
+  return createPortal(
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="auth-modal">
+        <div className="auth-head">ログイン前のマップがあります</div>
+        <div className="merge-desc">
+          このブラウザで作成された <b>{prompt.count} 件</b> のマップが、まだアカウントに保存されていません。
+          アカウントに追加しますか？
+        </div>
+        <ul className="merge-list">
+          {shown.map((name, i) => (
+            <li key={i}>{name}</li>
+          ))}
+          {rest > 0 && <li className="merge-rest">ほか {rest} 件</li>}
+        </ul>
+        <div className="auth-buttons">
+          <button type="button" className="btn" disabled={busy} onClick={() => choose(false)}>
+            追加しない
+          </button>
+          <button type="button" className="btn-primary" disabled={busy} onClick={() => choose(true)}>
+            {busy ? '処理中…' : 'アカウントに追加'}
+          </button>
+        </div>
+        <div className="auth-note">
+          「追加しない」を選ぶと、これらのマップはこのブラウザから削除され、<br />
+          アカウントに保存済みのマップだけが表示されます。
+        </div>
+      </div>
     </div>,
     document.body,
   )

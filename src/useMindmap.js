@@ -99,7 +99,58 @@ export function useMindmap() {
     updated_at: new Date(p.updatedAt).toISOString(),
   })
 
-  // 全体同期: サーバ⇄ローカルをマージ（新しい方が勝ち）して差分をアップロード
+  // 手つかずの初期マップ（ノード1個・本文がデフォルトのまま）か
+  const isPristine = (p) => {
+    const ids = Object.keys(p.data.nodes)
+    if (ids.length !== 1) return false
+    const root = p.data.nodes[p.data.rootId]
+    return !!root && root.text === 'メインテーマ'
+  }
+
+  // ログイン時の取り込み確認ダイアログ { count, names } | null
+  const [mergePrompt, setMergePrompt] = useState(null)
+  const pendingMergeRef = useRef(null) // { rows, askIds, autoDrop }
+  const syncGateRef = useRef(false) // 確認待ちの間はアップロードを止める
+
+  // サーバ⇄ローカルをマージ（新しい方が勝ち）して差分をアップロード
+  // dropIds のローカルマップは取り込まず破棄する
+  const applyMerge = useCallback(async (rows, dropIds = new Set()) => {
+    const u = userRef.current
+    const s = storeRef.current
+    const kept = s.projects.filter((p) => !dropIds.has(p.id))
+    const byId = new Map(kept.map((p) => [p.id, p]))
+    const serverMs = new Map()
+    for (const r of rows) {
+      const ms = new Date(r.updated_at).getTime()
+      serverMs.set(r.id, ms)
+      const local = byId.get(r.id)
+      if (!local || ms > local.updatedAt) {
+        byId.set(r.id, { id: r.id, name: r.name, updatedAt: ms, data: r.data })
+      }
+    }
+    let projects = [...byId.values()]
+    if (!projects.length) {
+      const p = createProject('最初のマップ')
+      projects = [p]
+    }
+    const currentId = byId.has(s.currentId) && !dropIds.has(s.currentId) ? s.currentId : projects[0].id
+    setStore({ currentId, projects })
+
+    // ローカルにしかない/ローカルの方が新しいものを送る
+    const toPush = projects.filter(
+      (p) => !serverMs.has(p.id) || p.updatedAt > serverMs.get(p.id) + 500,
+    )
+    if (toPush.length) {
+      const { error } = await supabase
+        .from('maps')
+        .upsert(toPush.map((p) => projectToRow(p, u.id)), { onConflict: 'user_id,id' })
+      if (error) throw error
+    }
+    for (const p of projects) lastPushedRef.current.set(p.id, p.updatedAt)
+    setSyncState('synced')
+  }, [])
+
+  // 手動同期（↻）: 確認なしで全マージ
   const fullSync = useCallback(async () => {
     const u = userRef.current
     if (!supabase || !u) return
@@ -107,55 +158,84 @@ export function useMindmap() {
     try {
       const { data: rows, error } = await supabase.from('maps').select('id,name,data,updated_at')
       if (error) throw error
-
-      const s = storeRef.current
-      const byId = new Map(s.projects.map((p) => [p.id, p]))
-      const serverMs = new Map()
-      for (const r of rows) {
-        const ms = new Date(r.updated_at).getTime()
-        serverMs.set(r.id, ms)
-        const local = byId.get(r.id)
-        if (!local || ms > local.updatedAt) {
-          byId.set(r.id, { id: r.id, name: r.name, updatedAt: ms, data: r.data })
-        }
-      }
-      const projects = [...byId.values()]
-      const currentId = byId.has(s.currentId) ? s.currentId : projects[0].id
-      setStore({ currentId, projects })
-
-      // ローカルにしかない/ローカルの方が新しいものを送る
-      const toPush = projects.filter(
-        (p) => !serverMs.has(p.id) || p.updatedAt > serverMs.get(p.id) + 500,
-      )
-      if (toPush.length) {
-        const { error: e2 } = await supabase
-          .from('maps')
-          .upsert(toPush.map((p) => projectToRow(p, u.id)), { onConflict: 'user_id,id' })
-        if (e2) throw e2
-      }
-      for (const p of projects) lastPushedRef.current.set(p.id, p.updatedAt)
-      setSyncState('synced')
+      await applyMerge(rows)
     } catch (err) {
       console.error('[sync] fullSync failed:', err)
       setSyncState('error')
     }
-  }, [])
+  }, [applyMerge])
 
-  // ログイン直後に全体同期・ログアウトで同期状態をリセット
+  // ログイン時の同期: アカウント未保存のローカルマップがあれば取り込みを確認する
+  const loginSync = useCallback(async () => {
+    const u = userRef.current
+    if (!supabase || !u) return
+    setSyncState('syncing')
+    try {
+      const { data: rows, error } = await supabase.from('maps').select('id,name,data,updated_at')
+      if (error) throw error
+
+      const serverIds = new Set(rows.map((r) => r.id))
+      const s = storeRef.current
+      const localOnly = s.projects.filter((p) => !serverIds.has(p.id))
+      // 手つかずの初期マップは確認せず破棄（端末ごとに空マップが増えるのを防ぐ）
+      // ただしサーバが空でローカルもそれしか無い場合は残す（初回利用）
+      const autoDrop = new Set()
+      if (rows.length > 0 || localOnly.some((p) => !isPristine(p))) {
+        for (const p of localOnly) if (isPristine(p)) autoDrop.add(p.id)
+      }
+      const ask = localOnly.filter((p) => !isPristine(p))
+
+      if (ask.length > 0) {
+        // ユーザーの選択待ち（この間アップロードは止める）
+        syncGateRef.current = true
+        pendingMergeRef.current = { rows, askIds: ask.map((p) => p.id), autoDrop }
+        setMergePrompt({ count: ask.length, names: ask.map((p) => p.name) })
+        return
+      }
+      await applyMerge(rows, autoDrop)
+    } catch (err) {
+      console.error('[sync] loginSync failed:', err)
+      setSyncState('error')
+    }
+  }, [applyMerge])
+
+  // 取り込み確認への回答（addLocal: true=アカウントに追加 / false=破棄）
+  const resolveMergePrompt = useCallback(async (addLocal) => {
+    const pending = pendingMergeRef.current
+    pendingMergeRef.current = null
+    setMergePrompt(null)
+    syncGateRef.current = false
+    if (!pending) return
+    const drop = new Set(pending.autoDrop)
+    if (!addLocal) for (const id of pending.askIds) drop.add(id)
+    setSyncState('syncing')
+    try {
+      await applyMerge(pending.rows, drop)
+    } catch (err) {
+      console.error('[sync] merge failed:', err)
+      setSyncState('error')
+    }
+  }, [applyMerge])
+
+  // ログイン直後に同期・ログアウトで同期状態をリセット
   useEffect(() => {
     if (user) {
-      fullSync()
+      loginSync()
     } else {
       lastPushedRef.current = new Map()
+      pendingMergeRef.current = null
+      syncGateRef.current = false
+      setMergePrompt(null)
       setSyncState('idle')
     }
-  }, [user, fullSync])
+  }, [user, loginSync])
 
   // 変更を1.5秒デバウンスでアップロード（削除も反映）
   useEffect(() => {
     if (!supabase || !user) return
     clearTimeout(pushTimer.current)
     pushTimer.current = setTimeout(async () => {
+      if (syncGateRef.current) return // 取り込み確認待ちの間は送らない
       const s = storeRef.current
       const dirty = s.projects.filter((p) => (lastPushedRef.current.get(p.id) ?? 0) < p.updatedAt)
       const localIds = new Set(s.projects.map((p) => p.id))
@@ -454,6 +534,8 @@ export function useMindmap() {
       updatePassword,
       recoveryMode,
       setRecoveryMode,
+      mergePrompt,
+      resolveMergePrompt,
     },
     // プロジェクト操作
     newProject,
