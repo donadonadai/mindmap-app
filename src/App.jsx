@@ -248,18 +248,9 @@ export default function App() {
   // --- 全体表示（表示中ノードが収まるようにオートフィット） ---
   // サイドバー展開中はその分だけ右側の余白にセンタリングする
   const SIDEBAR_W = 292
-  const recenter = useCallback(() => {
-    const rect = canvasRef.current.getBoundingClientRect()
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const id of visibleIds) {
-      const n = state.nodes[id]
-      const s = sizesRef.current[id] || DEFAULT_SIZE
-      minX = Math.min(minX, n.x)
-      minY = Math.min(minY, n.y)
-      maxX = Math.max(maxX, n.x + s.w)
-      maxY = Math.max(maxY, n.y + s.h)
-    }
+  const fitBounds = useCallback((minX, minY, maxX, maxY) => {
     if (!isFinite(minX)) return
+    const rect = canvasRef.current.getBoundingClientRect()
     const offsetL = sidebarOpen ? SIDEBAR_W : 0
     const availW = rect.width - offsetL
     const pad = 100
@@ -269,7 +260,20 @@ export default function App() {
     const cx = (minX + maxX) / 2
     const cy = (minY + maxY) / 2
     setView({ scale, x: offsetL + availW / 2 - cx * scale, y: rect.height / 2 - cy * scale })
-  }, [state.nodes, visibleIds, sidebarOpen])
+  }, [sidebarOpen])
+
+  const recenter = useCallback(() => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const id of visibleIds) {
+      const n = state.nodes[id]
+      const s = sizesRef.current[id] || DEFAULT_SIZE
+      minX = Math.min(minX, n.x)
+      minY = Math.min(minY, n.y)
+      maxX = Math.max(maxX, n.x + s.w)
+      maxY = Math.max(maxY, n.y + s.h)
+    }
+    fitBounds(minX, minY, maxX, maxY)
+  }, [state.nodes, visibleIds, fitBounds])
 
   // プロジェクト切替時・初回にオートフィット
   const lastCenteredId = useRef(null)
@@ -280,17 +284,16 @@ export default function App() {
     }
   }, [current.id, recenter])
 
-  // --- 自動整列（実サイズを考慮したツリーレイアウト） ---
-  // 列: 階層ごと（前の列の最大幅 + 間隔）、縦: 葉を重ならず積み、親は子の中央。
-  // 現在の上下の並び順は保つ。折りたたみ中の枝も含めて整列する。
-  const autoArrange = useCallback(() => {
+  // --- 自動整列（実サイズを考慮） ---
+  // mode 'tree': 横ツリー（列=階層、縦=葉を積み親は子の中央）
+  // mode 'radial': 放射状（中心にルート、階層ごとに同心円、枝の葉数で角度配分）
+  // どちらも兄弟の並び順は現在の順を保ち、折りたたみ中の枝も整列する。
+  const autoArrange = useCallback((mode = 'tree') => {
     const { nodes, rootId } = state
     if (!nodes[rootId]) return
-    const H_GAP = 70
-    const V_GAP = 18
     const sizeOf = (id) => sizesRef.current[id] || DEFAULT_SIZE
 
-    // 深さの割り当てと列幅の集計
+    // 深さの割り当てと階層ごとの最大ノード幅
     const depthOf = new Map()
     const walk = (id, depth) => {
       depthOf.set(id, depth)
@@ -301,33 +304,88 @@ export default function App() {
     for (const [id, d] of depthOf) {
       colWidth[d] = Math.max(colWidth[d] || 0, sizeOf(id).w)
     }
-    const colX = [0]
-    for (let d = 1; d < colWidth.length; d++) colX[d] = colX[d - 1] + colWidth[d - 1] + H_GAP
 
-    // 縦位置: 葉を順に積み、親は子全体の中央に
-    let cursor = 0
     const positions = new Map()
-    const layoutY = (id) => {
-      const kids = childrenMap.get(id) || []
-      const h = sizeOf(id).h
-      let y
-      if (kids.length === 0) {
-        y = cursor
-        cursor += h + V_GAP
-      } else {
-        for (const k of kids) layoutY(k.id)
-        const firstTop = positions.get(kids[0].id).y
-        const last = kids[kids.length - 1]
-        const lastBottom = positions.get(last.id).y + sizeOf(last.id).h
-        y = (firstTop + lastBottom) / 2 - h / 2
+
+    if (mode === 'radial') {
+      const RING_GAP = 90
+      // 同心円の半径: 隣り合う階層の最大幅の半分ずつ + 余白
+      const radius = [0]
+      for (let d = 1; d < colWidth.length; d++) {
+        radius[d] = radius[d - 1] + colWidth[d - 1] / 2 + colWidth[d] / 2 + RING_GAP
       }
-      positions.set(id, { x: colX[depthOf.get(id)], y })
+      // 葉に等間隔の角度を割り当て、親は自分の扇形の中央
+      let totalLeaves = 0
+      const countLeaves = (id) => {
+        const kids = childrenMap.get(id) || []
+        if (!kids.length) totalLeaves++
+        for (const k of kids) countLeaves(k.id)
+      }
+      countLeaves(rootId)
+      let leafIdx = 0
+      const angleOf = new Map()
+      const assignAngle = (id) => {
+        const kids = childrenMap.get(id) || []
+        if (!kids.length) {
+          angleOf.set(id, (leafIdx++ / Math.max(totalLeaves, 1)) * Math.PI * 2)
+          return
+        }
+        for (const k of kids) assignAngle(k.id)
+        const first = angleOf.get(kids[0].id)
+        const last = angleOf.get(kids[kids.length - 1].id)
+        angleOf.set(id, (first + last) / 2)
+      }
+      assignAngle(rootId)
+      for (const [id, d] of depthOf) {
+        const s = sizeOf(id)
+        if (d === 0) {
+          positions.set(id, { x: -s.w / 2, y: -s.h / 2 })
+        } else {
+          const a = angleOf.get(id) ?? 0
+          positions.set(id, {
+            x: radius[d] * Math.cos(a) - s.w / 2,
+            y: radius[d] * Math.sin(a) - s.h / 2,
+          })
+        }
+      }
+    } else {
+      const H_GAP = 70
+      const V_GAP = 18
+      const colX = [0]
+      for (let d = 1; d < colWidth.length; d++) colX[d] = colX[d - 1] + colWidth[d - 1] + H_GAP
+      // 縦位置: 葉を順に積み、親は子全体の中央に
+      let cursor = 0
+      const layoutY = (id) => {
+        const kids = childrenMap.get(id) || []
+        const h = sizeOf(id).h
+        let y
+        if (kids.length === 0) {
+          y = cursor
+          cursor += h + V_GAP
+        } else {
+          for (const k of kids) layoutY(k.id)
+          const firstTop = positions.get(kids[0].id).y
+          const last = kids[kids.length - 1]
+          const lastBottom = positions.get(last.id).y + sizeOf(last.id).h
+          y = (firstTop + lastBottom) / 2 - h / 2
+        }
+        positions.set(id, { x: colX[depthOf.get(id)], y })
+      }
+      layoutY(rootId)
     }
-    layoutY(rootId)
 
     mm.applyLayout(positions)
-    requestAnimationFrame(() => recenter())
-  }, [state, childrenMap, mm, recenter])
+    // 新しい座標から直接フィット（stateの反映を待つと古い座標で計算してしまう）
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const [id, pos] of positions) {
+      const s = sizeOf(id)
+      minX = Math.min(minX, pos.x)
+      minY = Math.min(minY, pos.y)
+      maxX = Math.max(maxX, pos.x + s.w)
+      maxY = Math.max(maxY, pos.y + s.h)
+    }
+    fitBounds(minX, minY, maxX, maxY)
+  }, [state, childrenMap, mm, fitBounds])
 
   // --- PNG画像として書き出し ---
   const exportPNG = useCallback(() => {
@@ -503,9 +561,7 @@ export default function App() {
             <Icon name="redo" />
           </button>
           <span className="tb-div" />
-          <button className="icon-btn" onClick={autoArrange} title="自動整列（重なったノードを整える）">
-            <Icon name="tidy" />
-          </button>
+          <ArrangeMenu onArrange={autoArrange} />
           <button className="icon-btn" onClick={recenter} title="全体表示">
             <Icon name="fit" />
           </button>
@@ -551,6 +607,47 @@ export default function App() {
         />
       )}
     </div>
+  )
+}
+
+// 自動整列メニュー（横ツリー / 放射状）
+function ArrangeMenu({ onArrange }) {
+  const [open, setOpen] = useState(false)
+  const pick = (mode) => {
+    setOpen(false)
+    onArrange(mode)
+  }
+  return (
+    <span className="menu-anchor">
+      <button
+        className={`icon-btn${open ? ' active' : ''}`}
+        title="自動整列（重なったノードを整える）"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="tidy" />
+      </button>
+      {open && (
+        <>
+          <div className="menu-backdrop" onClick={() => setOpen(false)} />
+          <div className="menu-pop" onPointerDown={(e) => e.stopPropagation()}>
+            <button onClick={() => pick('tree')}>
+              <Icon name="tidy" size={14} />
+              <span>
+                <b>横ツリー整列</b>
+                <small>左から右へ階層ごとに並べる</small>
+              </span>
+            </button>
+            <button onClick={() => pick('radial')}>
+              <Icon name="radial" size={14} />
+              <span>
+                <b>放射状整列（円形）</b>
+                <small>中心から円状に枝を広げる</small>
+              </span>
+            </button>
+          </div>
+        </>
+      )}
+    </span>
   )
 }
 

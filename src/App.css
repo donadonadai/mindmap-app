@@ -383,6 +383,72 @@ body {
   width: 200px;
 }
 
+/* ============ ドロップダウンメニュー ============ */
+
+.menu-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  min-width: 210px;
+  background: var(--surface);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  animation: modal-in 0.14s ease-out;
+}
+
+.menu-pop button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.menu-pop button:hover {
+  background: #f1f2f6;
+}
+
+.menu-pop button svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.menu-pop b {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.menu-pop small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-2);
+  margin-top: 1px;
+}
+
 /* ============ 選択ツールバー（コンテキスト） ============ */
 
 .selection-bar {

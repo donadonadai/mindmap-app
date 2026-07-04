@@ -149,6 +149,19 @@ const PATHS = {
       <path d="M6.5 10v4a3 3 0 0 0 3 3H14" />
     </>
   ),
+  radial: (
+    <>
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M12 9.5v-4" />
+      <path d="M12 18.5v-4" />
+      <path d="M9.5 12h-4" />
+      <path d="M18.5 12h-4" />
+      <circle cx="12" cy="4" r="1.4" />
+      <circle cx="12" cy="20" r="1.4" />
+      <circle cx="4" cy="12" r="1.4" />
+      <circle cx="20" cy="12" r="1.4" />
+    </>
+  ),
   help: (
     <>
       <circle cx="12" cy="12" r="10" />
