@@ -275,8 +275,14 @@ export function useMindmap() {
     return { data, error }
   }, [])
 
-  const signOut = useCallback(async () => {
+  // clearLocal: true ならこのブラウザのマップも消してまっさらに戻す（共有PC向け）
+  const signOut = useCallback(async (clearLocal = false) => {
     await supabase.auth.signOut()
+    if (clearLocal) {
+      const init = createInitialStore()
+      setStore(init)
+      setSelectedId(init.projects[0].data.rootId)
+    }
   }, [])
 
   // パスワード再設定メールを送る（リンクは本番URLに戻る）

@@ -728,7 +728,7 @@ function Sidebar({ mm }) {
 
   return (
     <aside className="sidebar">
-      <CloudPanel cloud={mm.cloud} />
+      <CloudPanel cloud={mm.cloud} mapCount={store.projects.length} />
       <div className="sidebar-head">
         <span>マイマップ</span>
         <button className="btn-primary sm" onClick={() => mm.newProject()}>
@@ -848,9 +848,10 @@ const SYNC_LABEL = {
   error: '同期エラー',
 }
 
-function CloudPanel({ cloud }) {
+function CloudPanel({ cloud, mapCount }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
   if (!cloud.enabled) return null
 
   if (!cloud.user) {
@@ -879,18 +880,67 @@ function CloudPanel({ cloud }) {
         <button className="icon-btn xs" title="パスワード変更" onClick={() => setPwOpen(true)}>
           <Icon name="key" size={13} />
         </button>
-        <button
-          className="icon-btn xs"
-          title="ログアウト"
-          onClick={() => {
-            if (confirm('ログアウトしますか？\n（このPCのローカルデータはそのまま残ります）')) cloud.signOut()
-          }}
-        >
+        <button className="icon-btn xs" title="ログアウト" onClick={() => setLogoutOpen(true)}>
           <Icon name="logout" size={13} />
         </button>
       </div>
       {pwOpen && <PasswordModal cloud={cloud} title="パスワード変更" onClose={() => setPwOpen(false)} />}
+      {logoutOpen && (
+        <LogoutModal cloud={cloud} mapCount={mapCount} onClose={() => setLogoutOpen(false)} />
+      )}
     </div>
+  )
+}
+
+// ログアウト時: このブラウザのマップを残すか消すかを選択
+function LogoutModal({ cloud, mapCount, onClose }) {
+  const [busy, setBusy] = useState(false)
+  const notSynced = cloud.syncState !== 'synced'
+
+  const doLogout = async (clearLocal) => {
+    if (busy) return
+    if (clearLocal) {
+      const ok = confirm(
+        `このブラウザから ${mapCount} 件のマップを削除してログアウトします。よろしいですか？\n（クラウドに保存済みのマップはアカウントに残ります）`,
+      )
+      if (!ok) return
+    }
+    setBusy(true)
+    await cloud.signOut(clearLocal)
+    onClose()
+  }
+
+  return createPortal(
+    <div className="modal-overlay" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="auth-modal">
+        <div className="auth-head">ログアウト</div>
+        <div className="merge-desc">
+          このブラウザに保存されているマップ（<b>{mapCount} 件</b>）をどうしますか？
+        </div>
+        {notSynced && (
+          <div className="auth-msg error">
+            まだ同期されていない変更がある可能性があります。「残してログアウト」をおすすめします。
+          </div>
+        )}
+        <div className="logout-options">
+          <button type="button" disabled={busy} onClick={() => doLogout(false)}>
+            <b>残してログアウト</b>
+            <span>次回このブラウザで開いたとき、そのまま続きから使えます</span>
+          </button>
+          <button type="button" className="danger" disabled={busy} onClick={() => doLogout(true)}>
+            <b>消してログアウト</b>
+            <span>共有PCなど、この端末にマップを残したくない場合に</span>
+          </button>
+        </div>
+        <div className="auth-buttons">
+          <button type="button" className="btn" disabled={busy} onClick={onClose}>キャンセル</button>
+        </div>
+        <div className="auth-note">
+          クラウドに保存済みのマップはアカウントに残り、<br />次のログインでいつでも復元できます。
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
